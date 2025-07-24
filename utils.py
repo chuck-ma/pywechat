@@ -1,17 +1,29 @@
 import time
 import pyautogui
 from functools import wraps
-from pywechat.WechatTools import Tools
-from pywechat.WinSettings import Systemsettings
-from pywechat.WechatTools import match_duration,mouse
-from pywechat.Errors import TimeNotCorrectError,NotFriendError
-from pywechat.Uielements import Buttons,Main_window,Texts,Edits,SideBar
-Buttons=Buttons()
-Main_window=Main_window()
-Texts=Texts()
-Edits=Edits()
-SideBar()
+from pywechat.WechatAuto import *
+from pywechat.Uielements import (Main_window,SideBar,Independent_window,Buttons,SpecialMessages,
+Edits,Texts,TabItems,Lists,Panes,Windows,CheckBoxes,MenuItems,Menus,ListItems)
+from pywechat.WechatTools import match_duration
+#######################################################################################
+language=Tools.language_detector()#有些功能需要判断语言版本
+Main_window=Main_window()#主界面UI
+SideBar=SideBar()#侧边栏UI
+Independent_window=Independent_window()#独立主界面
+Buttons=Buttons()#所有Button类型UI
+Edits=Edits()#所有Edit类型UI
+Texts=Texts()#所有Text类型UI
+TabItems=TabItems()#所有TabIem类型UI
+Lists=Lists()#所有列表类型UI
+Panes=Panes()#所有Pane类型UI
+Windows=Windows()#所有Window类型UI
+CheckBoxes=CheckBoxes()#所有CheckBox类型UI
+MenuItems=MenuItems()#所有MenuItem类型UI
+Menus=Menus()#所有Menu类型UI
+ListItems=ListItems()#所有ListItem类型UI
+SpecialMessages=SpecialMessages()#特殊消息
 language=Tools.language_detector()
+
 def auto_reply_to_friend_decorator(duration:str,friend:str,search_pages:int=5,delay:int=0.2,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
     '''
     该函数为自动回复指定好友的修饰器\n
@@ -154,8 +166,6 @@ def auto_reply_to_group_decorator(duration:str,group_name:str,search_pages:int=5
         return wrapper
     return decorator
     
-from pywechat import *
-from functools import wraps
 def auto_reply_groups_decorator(duration:str,max_pages:int=5,never_reply:list=[],scroll_delay:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该装饰器用来遍历会话列表查找新消息如果是群聊且该群聊新消息中含有@我的字样则自动回复的否则不回复
@@ -312,58 +322,143 @@ def auto_reply_groups_decorator(duration:str,max_pages:int=5,never_reply:list=[]
         return wrapper
     return decorator
 
-# @auto_reply_to_friend_decorator(duration='30s',friend='测试ing365')
-# def reply_func(newMessage):
-#     if '你好' in newMessage:
-#         return '你好,有什么需要帮助的吗?'
-#     if '在吗' in newMessage:
-#         return '不好意思,当前不在,请稍后联系'
-#     return '我的微信正在被pywechat控制'   
-# reply_func()
+def get_followed_officialAccounts(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->(list[str]|str):
+    '''
+    该函数用来获取已关注的所有公众号的名称。\n
+    结果以list[str]或该类型的json字符串返回\n
+    Args:
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面是否全屏,默认全屏。\n
+        close_wechat:任务结束后是否关闭微信,默认关闭\n
+    Returns:
+        names:['微信支付','腾讯新闻',...]
+    '''
+    main_window=Tools.open_contacts(wechat_path=wechat_path,is_maximize=is_maximize)
+    ContactsLists=main_window.child_window(**Main_window.ContactsList)
+    rec=ContactsLists.rectangle()
+    mouse.click(coords=(rec.right-5,rec.top))
+    pyautogui.press('Home')
+    official_account=ContactsLists.child_window(**ListItems.OfficialAccountsListItem)
+    if not official_account.exists():
+        selected_item=ContactsLists.children(control_type='ListItem')[0]
+        selected_items=[selected_item]
+        while selected_item.window_text()!=ListItems.OfficialAccountsListItem['title']:
+            selected_item=[item for item in ContactsLists.children(control_type='ListItem') if item.is_selected()][0]
+            selected_items.append(selected_item)
+            #################################################
+            #没必要继续向下了，此时已经到头了，可以提前break了
+            #也就是当前selected_item在selected_items的倒数第二个时，就可以直接退出了，当然，必须得保证selected_items大于2
+            if len(selected_items)>2 and selected_item==selected_items[-2]:
+                break
+            pyautogui.keyDown('down',_pause=False)
+        if not official_account.exists():
+            main_window.close()
+            print('没有关注过任何公众号！')
+            return
+    official_account.click_input()
+    parent=main_window.child_window(**Texts.OfficialAccountsText).parent().parent()
+    official_account_list=parent.children(control_type='Pane')[1].children(control_type='ListItem')
+    names=[ListItem.window_text() for ListItem in official_account_list]
+    if is_json:
+        names=json.dumps(names,ensure_ascii=False,indent=4)
+    if close_wechat:
+        main_window.close()
+    return names
 
-#@auto_reply_to_group_decorator(duration='30s',group_name='Pywechat测试群',at_other=True)
-# def reply_func(newMessage):
-#     if '你好' in newMessage:
-#         return '在的,亲😙请问有什么需要帮助的吗？'
-#     if '售后' in newMessage:
-#         return '您可以点击下方链接，申请售后服务'
-#     if '算了' in newMessage:
-#         return '很遗憾未能未您提供服务，欢迎下次选购'
-#     else:
-#         return '欢迎进店选购，祝您生活愉快'   
-# reply_func()
+def dump_session_list(chatted_only:bool=False,no_official:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    '''
+    该函数用来获取会话列表内所有的聊天对象的名称,最后聊天时间,以及最后一条聊天消息
+    Args:
+        chatted_only:只获取会话列表中聊过天的好友(ListItem底部有灰色消息不是空白),默认为False
+        no_official:不包含公众号(从关注过的公众号中排查),默认为False
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面是否全屏，默认全屏
+        close_wechat:任务结束后是否关闭微信，默认关闭
+    '''
+    def get_sending_time(ListItem):
+        '''
+        普通好友:[名字,时间,消息]或[名字,时间,消息,新消息条数]\n
+        企业微信好友:[名字,@公司名,时间，消息]或[名字,@公司名,时间，消息,'新消息条数']\n
+        下方的判断逻辑基于上述列表
+        '''
+        texts=ListItem.descendants(control_type='Text')
+        if len(texts)==4 and not texts[-1].window_text().isdigit():
+            return texts[2].window_text()
+        if len(texts)==5:
+            return texts[2].window_text()
+        return texts[1].window_text()
 
-#@auto_reply_groups_decorator(duration='1min')
-#def reply_func(newmessage):
-#   if '你好' in newmessage:
-#        return '你好,请问有什么可以帮助你的吗?'
-#    if '售后' in newmessage:
-#        return '你可以点击以下链接申请售后服务'
-#    else:
-#        return '不好意思,不明白您的需求'
-#reply_func()
+    def get_last_message(ListItem):
+        '''
+        普通好友:[名字,时间,消息]或[名字,时间,消息,新消息条数]\n
+        企业微信好友:[名字,@公司名,时间，消息]或[名字,@公司名,时间，消息,'新消息条数']\n
+        下方的判断逻辑基于上述列表
+        '''
+        texts=ListItem.descendants(control_type='Text')
+        if len(texts)==4 and not texts[-1].window_text().isdigit():
+            return texts[3].window_text()
+        if len(texts)==5:
+            return texts[3].window_text()
+        return texts[2].window_text()
 
-# import requests
-# import json
-# #接入大模型API自动回复
-# @auto_reply_to_group_decorator(duration='30s',group_name='Pywechat测试群',at_other=True)
-# def reply_func(newmessage):
-#     # API URL
-#     url = 'https://api.coze.cn/v1/workflow/run'
-    
-#     # Headers
-#     headers = {
-#         'Authorization': '',  # 替换为真实的token
-#         'Content-Type': 'application/json'
-#     }
-#     # 请求数据
-#     data = {
-#         "workflow_id": "",  #替换为真实的workflow_id
-#         "parameters": {   
-#             "input": f"{newmessage}"
-#         }
-#     }
-#     response=requests.post(url, headers=headers, data=json.dumps(data))
-#     return response.json()['data']
-# reply_func()
-
+    if no_official:
+        officialAccounts=get_followed_officialAccounts(is_json=False,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False)
+        #这几个公众号是不会出现在已关注的公众号列表中，需要额外补充
+        if language=='简体中文':
+            taboo_list=['微信团队','订阅号','腾讯新闻','服务通知']
+        if language=='繁体中文':
+            taboo_list=['微信团队','訂閱賬號','騰訊新聞','服務通知']
+        if language=='英文':
+            taboo_list=['微信团队','Subscriptions','Tencent News','Service Notifications']
+        officialAccounts.extend(taboo_list)
+    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
+    chats_button=main_window.child_window(**SideBar.Chats)
+    chats_button.click_input()
+    message_list=main_window.child_window(**Main_window.ConversationList)
+    if not message_list.children(control_type='ListItem'):
+        print(f'会话列表为空！')
+        return
+    chats=[]
+    ListItems=[]
+    latest_message=[]
+    latest_sending_time=[]
+    scrollable=Tools.is_VerticalScrollable(message_list)
+    if not scrollable:
+        ListItems=message_list.children(control_type='ListItem')
+        if chatted_only:
+            ListItems=[ListItem for ListItem in ListItems if get_last_message(ListItem)!='']
+        if no_official:
+            ListItems=[ListItem for ListItem in ListItems if ListItem.descendants(control_type='Text')[0].window_text() not in officialAccounts]
+        ListItems=list(dict.fromkeys(ListItems))
+        chats.extend([ListItem.descendants(control_type='Text')[0].window_text() for ListItem in ListItems])
+        latest_sending_time.extend([get_sending_time(ListItem) for ListItem in ListItems])
+        latest_message.extend([get_last_message(ListItem) for ListItem in ListItems])
+    if scrollable:
+        rectangle=message_list.rectangle()
+        activateScollbarPosition=(rectangle.right-5, rectangle.top+20)
+        mouse.click(coords=activateScollbarPosition)
+        pyautogui.press('End')
+        last_chat=message_list.children(control_type='ListItem')[-1].window_text()
+        pyautogui.press('Home')
+        while True:
+            ListItems=message_list.children(control_type='ListItem')
+            lastchat=ListItems[-1].window_text()
+            if chatted_only:
+                ListItems=[ListItem for ListItem in ListItems if get_last_message(ListItem)!='']
+            if no_official:
+                ListItems=[ListItem for ListItem in ListItems if ListItem.descendants(control_type='Text')[0].window_text() not in officialAccounts]
+            chats.extend([ListItem.descendants(control_type='Text')[0].window_text() for ListItem in ListItems])
+            latest_sending_time.extend([get_sending_time(ListItem) for ListItem in ListItems])
+            latest_message.extend([get_last_message(ListItem) for ListItem in ListItems])
+            if lastchat==last_chat:
+                break
+            pyautogui.keyDown('pagedown',_pause=False)
+        pyautogui.press('Home')
+        if close_wechat:
+            main_window.close()
+    return chats,latest_sending_time,latest_message
