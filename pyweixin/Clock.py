@@ -37,9 +37,9 @@ import re
 import asyncio
 import subprocess
 from  datetime import datetime
-from pywechat.Errors import TaskNotBuildError
-from pywechat.WinSettings import Systemsettings
-from pywechat.WechatTools import match_duration
+from pyweixin.Errors import TaskNotBuildError
+from pyweixin.WinSettings import Systemsettings
+from pyweixin.WechatTools import match_duration
 class schedule:#创建定时任务
     '''
     funcs:所有需要定时执行的函数名列表,注意函数名的类型为函数\n
