@@ -17,32 +17,32 @@ main_window.child_window(**searchbar).type_keys('你好!')
 ```
 即可获取到每个类别下的各个组件\n
 使用时无需担心语言对UI控件的影响,导入Uielements时会自动根据微信的语言调整控件中的title属性\n
-如果需要自行指定可以language的取值为:'简体中文','繁体中文','英文'
+如果需要自行指定,language的取值为:'简体中文','繁体中文','英文'
 '''
 import winreg
 from pywechat.Errors import NotInstalledError
 #################################################################
 #微信主界面:
-#==============================================================================
-#工具栏 |搜索|       |+|添加好友                                    ···聊天信息按钮  #
-#                                                                          |
-#|头像|                |                                                   |
-#|聊天|                |                                                   |
-#|通讯录|  会话列表     |                                                   |
-#|收藏|                |    聊天界面                                       |
-#|聊天文件|            |                                                 |
-#|朋友圈|             |                                                  |
-#|视频号|             |                                                  |
-#|看一看|            |                                                  |
-#|搜一搜|            |                                                  |
-#      |            |                                                    |
-#      |            |                                                  |
-#      |           |                                                   | 
-#      |           |----------------------------------------------------
-#小程序面板 |       |  表情 聊天文件 截图 聊天记录                       |
-#|手机|   |        |                                                   |
-#|设置及其他||      |                                                  |
-#=======================================================================
+#==========================================================================================
+#工具栏 |搜索|       |+|添加好友              ···聊天信息按钮  #
+#                                             |
+#|头像|   |          |                            |
+#|聊天|   |          |                            |
+#|通讯录|  | 会话列表     |                            |
+#|收藏|   |          |    聊天界面                    |
+#|聊天文件| |          |                            |
+#|朋友圈|  |          |                            |
+#|视频号|  |          |                            |
+#|看一看|  |          |                            |
+#|搜一搜|  |          |                            |
+#      |          |                            |
+#      |          |                            |
+#      |          |                            | 
+#      |          |---------------------------------------------------------
+#小程序面板 |          |  表情 聊天文件 截图 聊天记录           |
+#|手机|   |          |                            |
+#|设置及其他||          |                            |
+#===========================================================================================
 
 def language_detector():
     """
@@ -127,6 +127,10 @@ class Buttons():
             self.PaymentCodeButton={'title':'个人收款码','control_type':'Button','framework_id':'Chrome'}#微信收款助手内的个人收款码按钮
             self.InputButton={'title':'输入','control_type':'Button'}#公众号内最右侧的键盘图标形状的按钮,按下后可以向公众号发送消息
             self.ServiceButton={'title':'服务','control_type':'Button'}##公众号内最右侧的键盘图标形状的按钮,按下后转换为四个按钮
+            self.CommentButton={'title':'评论','control_type':'Button'}#朋友圈内的评论按钮
+            self.ImageButton={'title':'图片','control_type':'Button'}#朋友圈包含\d+图片窗口下的图片按钮,当且仅当好友的朋友圈内容含有图片时才有这个按钮
+            self.ChannelButton={'title':'视频号','control_type':'Button'}#微信聊天记录界面里顶部的视频号Tabitem
+            self.TransactionsButton={'title':'Transactions','control_type':'Button'}#微信支付界面内的我的账单按钮
         
         if self.language=='英文':
             self.MySelfButton={'control_type':'Button','found_index':0}#主界面下的第一个按钮,也就是我自己的头像按钮，必须通过main_window.child_window(**Buttons.MyselfButton)使用!
@@ -184,6 +188,10 @@ class Buttons():
             self.PaymentCodeButton={'title':'个人收款码','control_type':'Button','framework_id':'Chrome'}#微信收款助手内的个人收款码按钮
             self.InputButton={'title':'Enter','control_type':'Button'}#公众号内最右侧的键盘图标形状的按钮,按下后可以向公众号发送消息
             self.ServiceButton={'title':'Service','control_type':'Button'}##公众号内最右侧的键盘图标形状的按钮,按下后转换为四个按钮
+            self.CommentButton={'title':'Comment','control_type':'Button'}#朋友圈内的评论按钮
+            self.ImageButton={'title':'图片','control_type':'Button'}#朋友圈包含\d+图片窗口下的图片按钮,当且仅当好友的朋友圈内容含有图片时才有这个按钮
+            self.ChannelButton={'title':'Channel','control_type':'Button'}#微信朋友圈有人转发视频号时的视频号按钮
+            self.TransactionsButton={'title':'Transactions','control_type':'Button'}#微信支付界面内的我的账单按钮
         
         if self.language=='繁体中文':
             self.MySelfButton={'control_type':'Button','found_index':0}#主界面下的第一个按钮,也就是我自己的头像按钮，必须通过main_window.child_window(**Buttons.MyselfButton)使用!
@@ -241,6 +249,11 @@ class Buttons():
             self.PaymentCodeButton={'title':'个人收款码','control_type':'Button','framework_id':'Chrome'}#微信收款助手内的个人收款码按钮
             self.InputButton={'title':'输入','control_type':'Button'}#公众号内最右侧的键盘图标形状的按钮,按下后可以向公众号发送消息
             self.ServiceButton={'title':'服务','control_type':'Button'}##公众号内最右侧的键盘图标形状的按钮,按下后转换为四个按钮
+            self.CommentButton={'title':'評論','control_type':'Button'}#朋友圈内的评论按钮
+            self.ImageButton={'title':'图片','control_type':'Button'}#朋友圈包含\d+图片窗口下的图片按钮,当且仅当好友的朋友圈内容含有图片时才有这个按钮
+            self.ChannelButton={'title':'影音號','control_type':'Button'}#微信朋友圈有人转发视频号时的视频号按钮
+            self.TransactionsButton={'title':'我的账单','control_type':'Button'}#微信支付界面内的我的账单按钮
+
 class Edits():     
     '''微信主界面内所有类型为Edit(不包含独立窗口)的UI控件'''
     def __init__(self,language=language):
@@ -425,7 +438,9 @@ class Lists():
             self.ChannelList={'title':'视频号','control_type':'List'}#微信聊天记录窗口中选择视频号后的列表
             self.SelectContactToAddList={'title':'请勾选需要添加的联系人','control_type':'List'}#微信群聊拉人转发消息界面内搜索好友后的结果列表
             self.ChatList={'title':'聊天成员','control_type':'List'}#群聊设置界面内的聊天成员列表
-
+            self.MomentsList={'title':'朋友圈','control_type':'List'}#朋友圈列表
+            self.CommentList={'title':'评论','control_type':'List'}#朋友圈评论列表
+        
         if self.language=='英文':
             self.ChatHistoryList={'title':'All','control_type':'List'}#聊天记录页面中的存放聊天消息的列表
             self.ContactsList={'title':'Contacts','control_type':'List'}#通讯录中的联系人列表
@@ -439,6 +454,8 @@ class Lists():
             self.ChannelList={'title':'Channels','control_type':'List'}#微信聊天记录窗口中选择视频号后的列表 
             self.SelectContactToAddList={'title':'Select contacts to add','control_type':'List'}#微信群聊拉人转发消息界面内搜索好友后的结果列表
             self.ChatList={'title':'Members','control_type':'List'}#群聊设置界面内的聊天成员列表
+            self.MomentsList={'title':'Moments','control_type':'List'}#朋友圈列表
+            self.CommentList={'title':'Comment','control_type':'List'}#朋友圈评论列表
 
         if self.language=='繁体中文':
             self.ChatHistoryList={'title':'全部','control_type':'List'}#聊天记录页面中的存放聊天消息的列表
@@ -453,6 +470,8 @@ class Lists():
             self.ChannelList={'title':'影音號','control_type':'List'}#微信聊天记录窗口中选择视频号后的列表
             self.SelectContactToAddList={'title':'請勾選需要新增的聯絡人','control_type':'List'}#微信群聊拉人转发消息界面内搜索好友后的结果列表
             self.ChatList={'title':'聊天室成員','control_type':'List'}#群聊设置界面内的聊天成员列表
+            self.MomentsList={'title':'朋友圈','control_type':'List'}#朋友圈列表
+            self.CommentList={'title':'評論','control_type':'List'}#朋友圈评论列表
 
 class Panes():
     def __init__(self,language=language):
@@ -465,7 +484,8 @@ class Panes():
             self.ChangeShortcutPane={'title':'','control_type':'Pane','class_name':'SetAcceleratorWnd'}#修改快捷键时弹出的框
             self.ChatContaceMenuPane={'title':'ChatContactMenu','class_name':'ChatContactMenu','control_type':'Pane','framework_id':'Win32'}#群聊输入@+好友名字时弹出的选择聊天记录的列表
             self.VideoPlayerPane={'title':'player video','control_type':'Pane'}#图片预览窗口内的视频播放器pane
-
+            self.VideoPane={'title':'视频','control_type':'Pane'}#朋友圈视频窗格,只有好友朋友圈内容是视频才有这个窗格
+        
         if self.language=='英文':
             self.FriendProfilePane={'class_name':'ContactProfileWnd','control_type':'Pane','framework_id':'Win32'}#好友设置界面里点击头像后出现的个人简介界面
             self.ApprovalPane={'title':'New Tag','class_name':'WeUIDialog','control_type':'Pane'}#群主开启邀请好友须通过群主或管理员同意的验证消息框
@@ -474,6 +494,7 @@ class Panes():
             self.ChangeShortcutPane={'title':'','control_type':'Pane','class_name':'SetAcceleratorWnd'}#修改快捷键时弹出的框
             self.ChatContaceMenuPane={'title':'ChatContactMenu','class_name':'ChatContactMenu','control_type':'Pane','framework_id':'Win32'}#群聊输入@+好友名字时弹出的选择聊天记录的列表
             self.VideoPlayerPane={'title':'player video','control_type':'Pane'}#图片预览窗口内的视频播放器pane
+            self.VideoPane={'title':'video call','control_type':'Pane'}#朋友圈视频窗格,只有好友朋友圈内容是视频才有这个窗格
 
         if self.language=='繁体中文':
             self.FriendProfilePane={'class_name':'ContactProfileWnd','control_type':'Pane','framework_id':'Win32'}#好友设置界面里点击头像后出现的个人简介界面
@@ -483,7 +504,7 @@ class Panes():
             self.ChangeShortcutPane={'title':'','control_type':'Pane','class_name':'SetAcceleratorWnd'}#修改快捷键时弹出的框
             self.ChatContaceMenuPane={'title':'ChatContactMenu','class_name':'ChatContactMenu','control_type':'Pane','framework_id':'Win32'}#群聊输入@+好友名字时弹出的选择聊天记录的列表
             self.VideoPlayerPane={'title':'player video','control_type':'Pane'}#图片预览窗口内的视频播放器pane
-
+            self.VideoPane={'title':'影片','control_type':'Pane'}#朋友圈视频窗格,只有好友朋友圈内容是视频才有这个窗格
 
 
 class Menus():
@@ -871,6 +892,8 @@ class Independent_window():
             self.ReadMessageWindow={'title':'消息阅读','control_type':'Window','class_name':'CommonPreviewWnd'}#放大阅读后的阅读窗口
             self.ReceiptLedgerWindow={'title':'收款小账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款小账本窗口
             self.PaymentCodeWindow={'title':'经营账户','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款码窗口
+            self.MyBillsAndServiceWindow={'title':'我的账单与服务','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单与服务窗口
+            self.MyBillsWindow={'title':'微信记账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单窗口
 
         if self.language=='英文':
             self.Desktop={'backend':'uia'}#windows桌面
@@ -897,6 +920,8 @@ class Independent_window():
             self.ReadMessageWindow={'title':'Read messages','control_type':'Window','class_name':'CommonPreviewWnd'}#放大阅读后的阅读窗口
             self.ReceiptLedgerWindow={'title':'收款小账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款小账本窗口
             self.PaymentCodeWindow={'title':'经营账户','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款码窗口
+            self.MyBillsAndServiceWindow={'title':'我的账单与服务','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单与服务窗口
+            self.MyBillsWindow={'title':'微信记账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单窗口
 
         if self.language=='繁体中文':
             self.Desktop={'backend':'uia'}#windows桌面
@@ -923,6 +948,8 @@ class Independent_window():
             self.ReadMessageWindow={'title':'訊息閱讀','control_type':'Window','class_name':'CommonPreviewWnd'}#放大阅读后的阅读窗口
             self.ReceiptLedgerWindow={'title':'收款小账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款小账本窗口
             self.PaymentCodeWindow={'title':'经营账户','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款码窗口
+            self.MyBillsAndServiceWindow={'title':'我的账单与服务','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单与服务窗口
+            self.MyBillsWindow={'title':'微信记账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单窗口
 
 class SpecialMessages():
     '''特殊消息的Ui元素,如图片、视频、语音、视频号等\n
