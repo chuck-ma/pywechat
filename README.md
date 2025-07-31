@@ -60,6 +60,7 @@ Tools.set_wechat_as_environ_path()
 ##### Contacts: 获取3种类型通讯录好友的备注与昵称包括:微信好友,企业号微信,群聊名称与人数，数据返回格式为json。
 ##### Call: 给某个好友打视频或语音电话。
 ##### AutoReply:自动接听微信视频或语音电话,自动回复指定好友消息,自动回复所有好友消息。
+#### Moments:针对微信朋友圈的一些方法,包括数据爬取，图片视频导出
 #### 函数:该模块内所有函数与方法一致。  
 <br>
 
@@ -86,6 +87,18 @@ filesave_folder=r"E:\Desktop\保存文件"
 mediasave_folder=r"E:\Desktop\聊天图片与视频保存"
 contents,senders,types=listen_on_chat(friend='测试群',duration='10min',save_file=True,file_folder=filesave_folder,save_media=True,media_folder=mediasave_folder)
 print(contents,senders,types)
+```
+#### 朋友圈数据获取
+```
+from pywechat import dump_recent_moments
+moments=dump_recent_moments(recent='Today')
+for dict in moments:
+    print(dict)
+```
+#### 朋友圈图片导出
+```
+from pywechat import export_recent_moments_images
+export_recent_moments_images(recent='Today')
 ```
 #### 监听整个会话列表内所有好友的新消息(自动保存聊天文件)
 ```
