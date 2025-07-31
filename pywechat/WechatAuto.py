@@ -1,20 +1,21 @@
 '''
 WechatAuto
--------
-模块:\n
+=================
+类:\n
 ---------------
-Messages: 5种类型的发送消息功能包括:单人单条,单人多条,多人单条,多人多条,转发消息:多人同一条消息\n
-Files: 5种类型的发送文件功能包括:单人单个,单人多个,多人单个,多人多个,转发文件:多人同一个文件\n
-FriendSettings: 涵盖了PC微信针对某个好友的全部操作\n
-GroupSettings: 涵盖了PC微信针对某个群聊的全部操作\n
+AutoReply:包含对指定好友,群聊,会话列表中新消息好友的自动回复消息,以及自动接听语音或视频电话\n
+Messages:5种类型的发送消息功能包括:单人单条,单人多条,多人单条,多人多条,转发消息:多人同一条消息\n
+Files:5种类型的发送文件功能包括:单人单个,单人多个,多人单个,多人多个,转发文件:多人同一个文件\n
+FriendSettings:涵盖了PC微信针对某个好友的全部操作\n
+GroupSettings:涵盖了PC微信针对某个群聊的全部操作\n
 Contacts:获取微信好友详细信息(昵称,备注,地区，标签,个性签名,共同群聊,微信号,来源),\n
 获取微信好友的信息(昵称,备注,微信号),获取微信好友的名称(昵称,备注),获取企业号微信信息(好友名称,企业名称),获取群聊信息(群聊名称与人数)\n
-Call: 给某个好友打视频或语音电话\n
-AutoReply:包含对指定好友的AI自动回复消息,自动回复指定好友消息,自动回复群聊消息,以及自动接听语音或视频电话\n
+Call:给某个好友打视频或语音电话\n
+Moments:朋友圈数据爬取,图片,视频导出\n
 WeChatSettings: 修改PC微信设置\n
 ----------------------------------
 函数:\n
-函数为上述模块内的所有方法\n
+函数为上述类内的所有方法\n
 --------------------------------------
 使用该模块时,你可以导入类,使用类内的方法:\n
 ```
@@ -32,36 +33,16 @@ from pywechat import WechatAuto as wechat
 wechat.send_messages_to_friend()来进行使用
 ```
 '''
-#################################################################
-#微信主界面:
-#==========================================================================================
-#工具栏 |搜索|       |+|添加好友              ···聊天信息按钮  #
-#                                             |
-#|头像|   |          |                            |
-#|聊天|   |          |                            |
-#|通讯录|  | 会话列表     |                            |
-#|收藏|   |          |    聊天界面                    |
-#|聊天文件| |          |                            |
-#|朋友圈|  |          |                            |
-#|视频号|  |          |                            |
-#|看一看|  |          |                            |
-#|搜一搜|  |          |                            |
-#      |          |                            |
-#      |          |                            |
-#      |          |                            | 
-#      |          |---------------------------------------------------------
-#小程序面板 |          |  表情 聊天文件 截图 聊天记录           |
-#|手机|   |          |                            |
-#|设置及其他||          |                            |
-#===========================================================================================
-
 #########################################依赖环境#####################################
 import os 
 import re
 import time
+import emoji
 import json
 import pyautogui
 from warnings import warn
+from typing import Literal
+from concurrent.futures import ThreadPoolExecutor#Pytho3.2以上版本
 from .Warnings import LongTextWarning,ChatHistoryNotEnough
 from .WechatTools import Tools,mouse,Desktop
 from .WinSettings import Systemsettings
@@ -71,7 +52,6 @@ from .Errors import EmptyFileError
 from .Errors import EmptyFolderError
 from .Errors import NotFileError
 from .Errors import NotFolderError
-from .Errors import CantCreateGroupError
 from .Errors import NotFriendError
 from .Errors import NoPermissionError
 from .Errors import SameNameError
@@ -85,14 +65,22 @@ from .Errors import TimeNotCorrectError
 from .Errors import TickleError
 from .Errors import ElementNotFoundError
 from .Errors import TimeoutError
+from .Errors import NoGroupsError
+from .Errors import NoSubScribedOAError
+from .Errors import NoChatsError
+from .Errors import NoMomentsError
+from .Errors import CantCreateGroupError
+from .Errors import NoSuchFriendError
+from .Errors import NoPaymentLedgerError
 from .Uielements import (Main_window,SideBar,Independent_window,Buttons,SpecialMessages,
 Edits,Texts,TabItems,Lists,Panes,Windows,CheckBoxes,MenuItems,Menus,ListItems)
 from .WechatTools import match_duration
+from .utils import decrypt_image_dat,dat_to_video
 #######################################################################################
 language=Tools.language_detector()#有些功能需要判断语言版本
 Main_window=Main_window()#主界面UI
 SideBar=SideBar()#侧边栏UI
-Independent_window=Independent_window()#独立主界面UI
+Independent_window=Independent_window()#独立主界面
 Buttons=Buttons()#所有Button类型UI
 Edits=Edits()#所有Edit类型UI
 Texts=Texts()#所有Text类型UI
@@ -105,27 +93,48 @@ MenuItems=MenuItems()#所有MenuItem类型UI
 Menus=Menus()#所有Menu类型UI
 ListItems=ListItems()#所有ListItem类型UI
 SpecialMessages=SpecialMessages()#特殊消息
-
 pyautogui.FAILSAFE=False#防止鼠标在屏幕边缘处造成的误触
 
 class Messages():
+    '''针对微信消息的一些方法,主要包括发送消息和检查新消息'''
     @staticmethod
-    def send_message_to_friend(friend:str,message:str,at:list[str]=[],at_all:bool=False,tickle:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->None:
+    def send_message_to_friend(friend:str,message:str,at:list[str]=[],at_all:bool=False,tickle:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该函数用于给单个好友或群聊发送单条信息\n
+        该函数用于给单个好友或群聊发送单条信息
         Args:
-            friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-            message:\t待发送消息。格式:message="消息"\n
-            at:\t所有需要at的人的列表,在群聊内生效\n
-            at_all:\t是否at所有人,在群聊内生效\t
-            tickle:\t是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注。格式:friend="好友或群聊备注"
+            message:待发送消息。格式:message="消息"
+            at:所有需要at的人的列表,在群聊内生效，如果是好友建议使用给好友的备注或昵称
+            at_all:是否at所有人,在群聊内生效
+            tickle:是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            close_wechat:任务结束后是否关闭微信,默认关闭\n
         '''
+        def best_match(chatContactMenu,name):
+            '''在@列表里对比与去掉emoji字符后的name一致的'''
+            at_bottom=False
+            at_list=chatContactMenu.descendants(control_type='List',title='')[0]
+            selected_items=[]
+            selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+            while emoji.replace_emoji(selected_item.window_text())!=name:
+                pyautogui.press('down')
+                selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+                selected_items.append(selected_item)
+                #################################################
+                #当selected_item在selected_items的倒数第二个时，也就是重复出现时,说明已经到达底部
+                if len(selected_items)>2 and selected_item==selected_items[-2]:
+                    #到@好友列表底部,必须退出
+                    at_bottom=True
+                    break
+            if at_bottom:
+                #到达底部还没找到就删除掉名字以及@符号
+                pyautogui.press('backspace',len(name)+1,_pause=False)
+            if not at_bottom:
+                pyautogui.press('enter')
         if len(message)==0:
             raise CantSendEmptyMessageError
         #先使用open_dialog_window打开对话框
@@ -145,23 +154,22 @@ class Messages():
         if at:
             Systemsettings.set_english_input()
             for group_member in at:
+                group_member=emoji.replace_emoji(group_member)
                 edit_area.type_keys(f'@{group_member}')
                 if not chatContactMenu.exists():#@后没有出现说明群聊里没这个人
                     #按len(group_member)+1下backsapce把@xxx删掉
                     pyautogui.press('backspace',presses=len(group_member)+1,_pause=False)
                 if chatContactMenu.exists():
-                    pyautogui.press('enter')
+                    best_match(chatContactMenu,group_member)
         
         #字数超过2000字直接发txt
         if len(message)<2000:
             Systemsettings.copy_text_to_windowsclipboard(message)
             pyautogui.hotkey('ctrl','v',_pause=False)
-            time.sleep(delay)
             pyautogui.hotkey('alt','s',_pause=False)
         elif len(message)>2000:
             Systemsettings.convert_long_text_to_txt(message)
-            pyautogui.hotkey('ctrl','v',_pause=False)
-            time.sleep(delay)
+            pyautogui.hotkey('ctrl','v',_pause=False)  
             pyautogui.hotkey('alt','s',_pause=False)
             warn(message=f"微信消息字数上限为2000,超过2000字部分将被省略,该条长文本消息已为你转换为txt发送",category=LongTextWarning)    
         if tickle:
@@ -172,18 +180,18 @@ class Messages():
     @staticmethod
     def send_messages_to_friend(friend:str,messages:list[str],tickle:bool=False,delay:float=0.4,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用于给单个好友或群聊发送多条信息\n
+        该方法用于给单个好友或群聊发送多条信息
         Args: 
-            friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-            message:\t待发送消息列表。格式:message=["发给好友的消息1","发给好友的消息2"]\n
-            tickle:\t是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注。格式:friend="好友或群聊备注"
+            message:待发送消息列表。格式:message=["发给好友的消息1","发给好友的消息2"]
+            delay:发送单条消息延迟,单位:秒/s,默认0.4s。
+            tickle:是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            delay\t:发送单条消息延迟,单位:秒/s,默认0.4s。\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         if not messages:
             raise CantSendEmptyMessageError
@@ -213,32 +221,23 @@ class Messages():
     @staticmethod
     def send_messages_to_friends(friends:list[str],messages:list[list[str]],tickle:list[bool]=[],delay:float=0.4,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用于给多个好友或群聊发送多条信息\n
+        该方法用于给多个好友或群聊发送多条信息
         Args:
-            friends:\t好友或群聊备注列表,格式:firends=["好友1","好友2","好友3"]。\n
-            messages:\t待发送消息,格式: message=[[发给好友1的多条消息],[发给好友2的多条消息],[发给好友3的多条信息]]。\n
-            tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:好友或群聊备注列表,格式:firends=["好友1","好友2","好友3"]。
+            messages:待发送消息,格式: message=[[发给好友1的多条消息],[发给好友2的多条消息],[发给好友3的多条信息]]。
+            tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应
+            delay:发送单条消息延迟,单位:秒/s,默认0.4s。
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            delay:\t发送单条消息延迟,单位:秒/s,默认0.4s。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        注意!messages与friends长度需一致,并且messages内每一个列表顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
+            is_maximize:微信界面是否全屏,默认全屏
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         #多个好友的发送任务不需要使用open_dialog_window方法了直接在顶部搜索栏搜索,一个一个打开好友的聊天界面，发送消息,这样最高效
         Chats=dict(zip(friends,messages))
-        main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
         i=0
         for friend in Chats:
-            search=main_window.child_window(**Main_window.Search)
-            search.click_input()
-            Systemsettings.copy_text_to_windowsclipboard(friend)
-            time.sleep(1)
-            pyautogui.hotkey('ctrl','v',_pause=False)
-            time.sleep(1)
-            pyautogui.press('enter')
-            edit_area=main_window.child_window(title=friend,control_type='Edit')
+            edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,close_wechat=False,wechat_path=wechat_path,is_maximize=is_maximize)
             edit_area.click_input()
             for message in Chats.get(friend):
                 if len(message)==0:
@@ -267,31 +266,22 @@ class Messages():
         '''
         该方法用于给每friends中的一个好友或群聊发送message中对应的单条信息\n
         Args:
-            friends:\t好友或群聊备注。格式:friends=["好友1","好友2","好友3"]\n
-            message:\t待发送消息,格式: message=[发给好友1的多条消息,发给好友2的多条消息,发给好友3的多条消息]。\n
-            tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-            delay:\t发送单条消息延迟,单位:秒/s,默认0.4s。\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:好友或群聊备注。格式:friends=["好友1","好友2","好友3"]\n
+            message:待发送消息,格式: message=[发给好友1的多条消息,发给好友2的多条消息,发给好友3的多条消息]。\n
+            tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
+            delay:发送单条消息延迟,单位:秒/s,默认0.4s。\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。\n
+            close_wechat:任务结束后是否关闭微信,默认关闭\n
         注意!message与friends长度需一致,并且messages内每一条消息顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
         '''
         #多个好友的发送任务不需要使用open_dialog_window方法了直接在顶部搜索栏搜索,一个一个打开好友的聊天界面，发送消息,这样最高效
         Chats=dict(zip(friends,message))
-        main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
-        time.sleep(1)
         i=0
         for friend in Chats:
-            search=main_window.child_window(**Main_window.Search)
-            search.click_input()
-            Systemsettings.copy_text_to_windowsclipboard(friend)
-            time.sleep(1)
-            pyautogui.hotkey('ctrl','v',_pause=False)
-            time.sleep(1)
-            pyautogui.press('enter')
-            edit_area=main_window.child_window(title=friend,control_type='Edit')
+            edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
             edit_area.click_input()
             #字数超过2000字直接发txt
             if len(Chats.get(friend))==0:
@@ -318,18 +308,18 @@ class Messages():
     @staticmethod
     def forward_message(friends:list[str],message:str,delay:float=0.5,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用于给好友转发消息,实际使用时建议先给文件传输助手转发\n
-        这样可以避免对方聊天信息更新过快导致转发消息被'淹没',进而无法定位出错的问题。\n
+        该方法用于给好友转发消息,实际使用时建议先给文件传输助手转发
+        这样可以避免对方聊天信息更新过快导致转发消息被'淹没',进而无法定位出错的问题。
         Args:
-            friends:\t好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]\n
-            message:\t待发送消息,格式: message="转发消息"。\n
-            delay:\t搜索好友等待时间\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]
+            message:待发送消息,格式: message="转发消息"。
+            delay:搜索好友等待时间
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            search_pages:\t在会话列表中查询查找带转发消息的第一个好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            search_pages:在会话列表中查询查找带转发消息的第一个好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         def right_click_message():
             max_retry_times=25
@@ -440,13 +430,13 @@ class Messages():
         该函数无法监听当前界面内的新消息,如果需要,建议使用listen_on_chat函数\n
         传入duration后如出现停顿此为正常等待机制:因为该方法会等到时间结束后再查找新消息\n
         Args:
-            duration:\t监听消息持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
-            save_file:\t是否保存聊天文件,默认为False\n
-            target_folder:\t聊天文件保存路径,需要是文件夹,如果save_file为True,未传入该参数,则会自动在当前路径下创建一个文件夹来保存聊天文件\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            duration:监听消息持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
+            save_file:是否保存聊天文件,默认为False\n
+            target_folder:聊天文件保存路径,需要是文件夹,如果save_file为True,未传入该参数,则会自动在当前路径下创建一个文件夹来保存聊天文件\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            close_wechat:任务结束后是否关闭微信,默认关闭\n
         Returns:
             newMessages:新消息列表,格式:[{'好友名称':'好友备注','新消息条数',25:'好友类型':'群聊or个人or公众号','消息内容':[str],'消息类型':[str]}]\n
         '''
@@ -645,10 +635,9 @@ class Messages():
                 if not duration:#不是指定形式的duration报错
                     main_window.close()
                     raise TimeNotCorrectError
-                start_time=time.time()
-                while True:#一直等待直到时间差超过durtation
-                    if time.time()-start_time>=duration:
-                        break
+                end_timestamp=time.time()+duration#根据秒数计算截止时间
+                while time.time()<end_timestamp:#一直等截止时间
+                    break
                 if not chatsButton.legacy_properties().get('Value'):#文件传输助手界面原地等待duration后如果侧边栏的消息按钮还是没有红色消息提示直接返回未查找到新消息
                     if close_wechat:
                         main_window.close()
@@ -676,10 +665,9 @@ class Messages():
                     main_window.close()
                     raise TimeNotCorrectError
                 Systemsettings.open_listening_mode(full_volume=False)
-                start_time=time.time()
-                while True:#y一直原地等待,直到时间差超过duration
-                    if time.time()-start_time>=duration:
-                        break
+                end_timestamp=time.time()+duration#根据秒数计算截止时间
+                while time.time()<end_timestamp:#一直等截止时间
+                    break
                 if not chatsButton.legacy_properties().get('Value'):
                     if close_wechat:
                         main_window.close()
@@ -712,28 +700,49 @@ class Messages():
                 return newMessages
 
 class Files():
-
+    '''针对微信文件的一些方法,主要包括发送、转发、保存文件'''
     @staticmethod
-    def send_file_to_friend(friend:str,file_path:str,at:list[str]=[],at_all:bool=False,with_messages:bool=False,messages:list=[],messages_first:bool=False,delay:float=1,tickle:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+    def send_file_to_friend(friend:str,file_path:str,at:list[str]=[],at_all:bool=False,with_messages:bool=False,messages:list=[],messages_first:bool=False,delay:float=0.4,tickle:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用于给单个好友或群聊发送单个文件\n
+        该方法用于给单个好友或群聊发送单个文件
         Args:
-            friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-            file_path:\t待发送文件绝对路径。\n
-            at:\t所有需要at的人的列表,在群聊内生效\n
-            at_all:\t是否at所有人,在群聊内生效\t
-            with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False\n
-            messages:\t与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注。格式:friend="好友或群聊备注"
+            file_path:待发送文件绝对路径。
+            at:所有需要at的人的列表,在群聊内生效
+            at_all:是否at所有人,在群聊内生效
+            with_messages:发送文件时是否给好友发消息。True发送消息,默认为False
+            messages:与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            delay:\t发送单条信息或文件的延迟,单位:秒/s,默认2s。\n
-            tickle:\t是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-            messages_first:\t默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件,\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            delay:发送单条信息或文件的延迟,单位:秒/s,默认0.4s。
+            tickle:是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员
+            messages_first:默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件,
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
+        def best_match(chatContactMenu,name):
+            '''在@列表里对比与去掉emoji字符后的name一致的'''
+            at_bottom=False
+            at_list=chatContactMenu.descendants(control_type='List',title='')[0]
+            selected_items=[]
+            selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+            while emoji.replace_emoji(selected_item.window_text())!=name:
+                pyautogui.press('down')
+                selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+                selected_items.append(selected_item)
+                #################################################
+                #当selected_item在selected_items的倒数第二个时，也就是重复出现时,说明已经到达底部
+                if len(selected_items)>2 and selected_item==selected_items[-2]:
+                    #到@好友列表底部,必须退出
+                    at_bottom=True
+                    break
+            if at_bottom:
+                #到达底部还没找到，直接删掉名字与@符号 
+                pyautogui.press('backspace',len(name)+1,_pause=False)
+            if not at_bottom:
+                pyautogui.press('enter')
         if len(file_path)==0:
             raise NotFileError
         if not os.path.isfile(file_path):
@@ -756,12 +765,13 @@ class Files():
         if at:
             Systemsettings.set_english_input()
             for group_member in at:
+                group_member=emoji.replace_emoji(group_member)
                 edit_area.type_keys(f'@{group_member}')
                 if not chatContactMenu.exists():#@后没有出现说明群聊里没这个人
                     #按len(group_member)+1下backsapce把@xxx删掉
                     pyautogui.press('backspace',presses=len(group_member)+1,_pause=False)
                 if chatContactMenu.exists():
-                    pyautogui.press('enter')
+                    best_match(chatContactMenu,group_member)
         if with_messages and messages:
             if messages_first:
                 for message in messages:
@@ -815,23 +825,23 @@ class Files():
 
         
     @staticmethod
-    def send_files_to_friend(friend:str,folder_path:str,with_messages:bool=False,messages:list=[str],messages_first:bool=False,delay:float=1,tickle:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,search_pages:int=5)->None:
+    def send_files_to_friend(friend:str,folder_path:str,with_messages:bool=False,messages:list=[str],messages_first:bool=False,delay:float=0.4,tickle:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,search_pages:int=5)->None:
         '''
-        该方法用于给单个好友或群聊发送多个文件\n
+        该方法用于给单个好友或群聊发送多个文件
         Args:
-            friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-            folder_path:\t所有待发送文件所处的文件夹的地址。\n
-            with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False。\n
-            messages:\t与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注。格式:friend="好友或群聊备注"
+            folder_path:所有待发送文件所处的文件夹的地址。
+            with_messages:发送文件时是否给好友发消息。True发送消息,默认为False。
+            messages:与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。
-            delay:\t发送单条信息或文件的延迟,单位:秒/s,默认2s。\n
-            tickle:\t是否在发送文件或消息后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-            messages_first:\t默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件,\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            delay:发送单条信息或文件的延迟,单位:秒/s,默认0.4s。
+            tickle:是否在发送文件或消息后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员
+            messages_first:默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件,
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         if len(folder_path)==0:
             raise NotFolderError
@@ -906,23 +916,23 @@ class Files():
     
 
     @staticmethod
-    def send_file_to_friends(friends:list[str],file_paths:list[str],with_messages:bool=False,messages:list[list[str]]=[],messages_first:bool=False,delay:float=1,tickle:list[bool]=[],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+    def send_file_to_friends(friends:list[str],file_paths:list[str],with_messages:bool=False,messages:list[list[str]]=[],messages_first:bool=False,delay:float=0.4,tickle:list[bool]=[],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用于给每个好友或群聊发送单个不同的文件以及多条消息\n
+        该方法用于给每个好友或群聊发送单个不同的文件以及多条消息
         Args:
-            friends:\t好友或群聊备注。格式:friends=["好友1","好友2","好友3"]\n
-            file_paths:\t待发送文件,格式: file=[发给好友1的单个文件,发给好友2的文件,发给好友3的文件]。\n
-            with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False\n
-            messages:\t待发送消息,格式:messages=["发给好友1的单条消息","发给好友2的单条消息","发给好友3的单条消息"]
-            messages_first:\t先发送消息还是先发送文件.默认先发送文件\n
-            delay:\t发送单条消息延迟,单位:秒/s,默认1s。\n
-            tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:好友或群聊备注。格式:friends=["好友1","好友2","好友3"]
+            file_paths:待发送文件,格式: file=[发给好友1的单个文件,发给好友2的文件,发给好友3的文件]。
+            with_messages:发送文件时是否给好友发消息。True发送消息,默认为False
+            messages:待发送消息,格式:messages=["发给好友1的单条消息","发给好友2的单条消息","发给好友3的单条消息"]
+            messages_first:先发送消息还是先发送文件.默认先发送文件
+            delay:发送单条消息延迟,单位:秒/s,默认0.4s。
+            tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:任务结束后是否关闭微信,默认关闭\n
-        注意!messages,filepaths与friends长度需一致,并且messages内每一条消息顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+        注意!messages,filepaths与friends长度需一致,并且messages内每一条消息顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况
         '''
         for file_path in file_paths:
             file_path=re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',file_path)
@@ -935,20 +945,13 @@ class Files():
             if Systemsettings.is_empty_file(file_path):
                 raise EmptyFileError  
         Files=dict(zip(friends,file_paths))#临时便量用来使用字典来存储好友名称与对于文件路径
-        main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
         time.sleep(1)
          #多个好友的发送任务不需要使用open_dialog_window方法了直接在顶部搜索栏搜索,一个一个打开好友的聊天界面，发送消息,这样最高效
         if with_messages and messages:
             Chats=dict(zip(friends,messages))
             i=0
             for friend in Files:
-                search=main_window.child_window(**Main_window.Search)
-                search.click_input()
-                Systemsettings.copy_text_to_windowsclipboard(friend)
-                pyautogui.hotkey('ctrl','v')
-                time.sleep(0.5)
-                pyautogui.press('enter')
-                edit_area=main_window.child_window(title=friend,control_type='Edit')
+                edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
                 edit_area.click_input()
                 if messages_first:
                     messages=Chats.get(friend)
@@ -999,13 +1002,7 @@ class Files():
         else:
             i=0
             for friend in Files:
-                search=main_window.child_window(**Main_window.Search)
-                search.click_input()
-                Systemsettings.copy_text_to_windowsclipboard(friend)
-                pyautogui.hotkey('ctrl','v',_pause=False)
-                time.sleep(1)
-                pyautogui.press('enter')
-                edit_area=main_window.child_window(title=friend,control_type='Edit')
+                edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
                 edit_area.click_input()
                 Systemsettings.copy_file_to_windowsclipboard(Files.get(friend))
                 pyautogui.hotkey('ctrl','v',_pause=False)
@@ -1019,24 +1016,24 @@ class Files():
             main_window.close()
 
     @staticmethod
-    def send_files_to_friends(friends:list[str],folder_paths:list[str],with_messages:bool=False,messages:list[list[str]]=[],messages_first:bool=False,delay:float=1,tickle:list[bool]=[],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+    def send_files_to_friends(friends:list[str],folder_paths:list[str],with_messages:bool=False,messages:list[list[str]]=[],messages_first:bool=False,delay:float=0.4,tickle:list[bool]=[],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用于给多个好友或群聊发送多个不同或相同的文件夹内的所有文件\n
+        该方法用于给多个好友或群聊发送多个不同或相同的文件夹内的所有文件
         Args:
-            friends:\t好友或群聊备注。格式:friends=["好友1","好友2","好友3"]\n
-            folder_paths:\t待发送文件夹路径列表,每个文件夹内可以存放多个文件,格式: FolderPath_list=["","",""]\n
-            with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False\n
-            message_list:\t待发送消息,格式:message=[[""],[""],[""]]\n
-            messages_first:\t先发送消息还是先发送文件,默认先发送文件\n
-            delay:\t发送单条消息延迟,单位:秒/s,默认1s。\n
-            tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:好友或群聊备注。格式:friends=["好友1","好友2","好友3"]
+            folder_paths:待发送文件夹路径列表,每个文件夹内可以存放多个文件,格式: FolderPath_list=["","",""]
+            with_messages:发送文件时是否给好友发消息。True发送消息,默认为False
+            message_list:待发送消息,格式:message=[[""],[""],[""]]
+            messages_first:先发送消息还是先发送文件,默认先发送文件
+            delay:发送单条消息延迟,单位:秒/s,默认0.4s。
+            tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         注意! messages,folder_paths与friends长度需一致,并且messages内每一条消息FolderPath_list每一个文件\n
-        顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
+        顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况
         '''
         for folder_path in folder_paths:
             folder_path=re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',folder_path)
@@ -1067,18 +1064,11 @@ class Files():
                     pyautogui.hotkey('alt','s',_pause=False)
         folder_paths=[re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',folder_path) for folder_path in folder_paths]
         Files=dict(zip(friends,folder_paths))
-        main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
         if with_messages and messages:
             Chats=dict(zip(friends,messages))
             i=0
             for friend in Files:
-                search=main_window.child_window(**Main_window.Search)
-                search.click_input()
-                Systemsettings.copy_text_to_windowsclipboard(friend)
-                pyautogui.hotkey('ctrl','v')
-                time.sleep(0.5)
-                pyautogui.press('enter')
-                edit_area=main_window.child_window(title=friend,control_type='Edit')
+                edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
                 edit_area.click_input()
                 if messages_first:
                     messages=Chats.get(friend)
@@ -1125,13 +1115,7 @@ class Files():
         else:
             i=0
             for friend in Files:
-                search=main_window.child_window(**Main_window.Search)
-                search.click_input()
-                Systemsettings.copy_text_to_windowsclipboard(friend)
-                time.sleep(0.5)
-                pyautogui.hotkey('ctrl','v')
-                pyautogui.press('enter')
-                edit_area=main_window.child_window(title=friend,control_type='Edit')
+                edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
                 edit_area.click_input()
                 folder_path=Files.get(friend)
                 send_files(folder_path)
@@ -1143,15 +1127,15 @@ class Files():
             main_window.close()
 
     @staticmethod
-    def forward_file(friends:list[str],file_path:str,delay:float=0.5,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def forward_file(friends:list[str],file_path:str,delay:float=0.4,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用于给好友转发文件,实际使用时建议先给文件传输助手转发\n
-        这样可以避免对方聊天信息更新过快导致转发文件被'淹没',进而无法定位出错的问题。\n
+        该方法用于给好友转发文件,实际使用时建议先给文件传输助手转发
+        这样可以避免对方聊天信息更新过快导致转发文件被'淹没',进而无法定位出错的问题。
         Args:
-            friends:\t好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]\n
-            file_path:\t待发送文件,格式: file_path="转发文件路径"。\n
-            delay:发送单条消息延迟,单位:秒/s,默认1s。\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]
+            file_path:待发送文件,格式: file_path="转发文件路径"。
+            delay:搜索每个好友时的等待时间,单位:秒/s,默认0.4s。
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
             is_maximize:微信界面是否全屏,默认全屏。\n
@@ -1258,24 +1242,24 @@ class Files():
     @staticmethod
     def save_files(friend:str,folder_path:str=os.getcwd(),number:int=10,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->list[str]:
         '''
-        该方法用来保存与某个好友或群聊的聊天文件到指定文件夹中,如果有重复的文件,也会一并全部保存\n
+        该方法用来保存与某个好友或群聊的聊天文件到指定文件夹中,如果有重复的文件,也会一并全部保存
         Args:
-            friend:\t好友或群聊备注\n
-            number:\t需要保存的文件数量,默认为10,如果聊天记录中没有那么多文件,则会保存所有的文件\n
-            folder_path:\t保存聊天记录的文件夹路径,如果不传入则保存在当前运行代码所在的文件夹下\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注
+            number:需要保存的文件数量,默认为10,如果聊天记录中没有那么多文件,则会保存所有的文件
+            folder_path:保存聊天记录的文件夹路径,如果不传入则保存在当前运行代码所在的文件夹下
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
             filepaths:所有已经保存到指定文件夹内的文件名
         Examples:
             ```
             from pywechat import save_files
-            folder_path=r'E:\Desktop\新建文件夹'
-            save_files(friend='测试群',number=20,folder_path=folder_path
+            folder_path=r'E:\新建文件夹'
+            save_files(friend='测试群',number=20,folder_path=folder_path)
             ```
         '''
         def is_duplicate_filename(original, filename):
@@ -1328,6 +1312,9 @@ class Files():
         x,y=fileList.rectangle().right-8,fileList.rectangle().top+5
         mouse.click(coords=(x,y))
         pyautogui.press('Home')#回到最顶部
+        #点击一下第一个,确保处于选中状态
+        rec=fileList.children(control_type='ListItem')[0].rectangle()
+        mouse.click(coords=(rec.right-20,rec.bottom-5))
         filepaths=[]
         filenames=[]
         selected_items=[]
@@ -1372,17 +1359,17 @@ class Files():
     @staticmethod
     def forward_files(friend:str,others:list[str],number:int=10,is_maximize:bool=True,close_wechat:bool=True,search_pages:int=5,wechat_path:str=None)->None:
         '''
-        该函数用来转发与某个好友或群聊聊天记录内的聊天文件给指定好友\n
+        该函数用来转发与某个好友或群聊聊天记录内的聊天文件给指定好友
         Args:
-            friend:\t好友或群聊备注\n
-            others:\t所有转发对象\n
-            number:\t需要转发的文件数量,默认为10.如果没那么多,则转发全部\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注
+            others:所有转发对象
+            number:需要转发的文件数量,默认为10.如果没那么多,则转发全部
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Examples:
             ```
             from pywechat import forward_files
@@ -1471,17 +1458,17 @@ class Files():
 
 
 class WechatSettings():
-    
+    '''修改微信设置的一些方法'''
     @staticmethod
     def Log_out(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来PC微信退出登录。\n
+        该方法用来PC微信退出登录。
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         log_out_button=settings.child_window(**Buttons.LogoutButton)
@@ -1491,17 +1478,17 @@ class WechatSettings():
         confirm_button.click_input()
 
     @staticmethod
-    def Auto_convert_voice_messages_to_text(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Auto_convert_voice_messages_to_text(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭设置中的语音消息自动转文字。\n
+        该方法用来PC微信开启或关闭设置中的语音消息自动转文字。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1526,17 +1513,17 @@ class WechatSettings():
             settings.close()
 
     @staticmethod
-    def Adapt_to_PC_display_scalling(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Adapt_to_PC_display_scalling(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭适配微信设置中的系统所释放比例。\n
+        该方法用来PC微信开启或关闭适配微信设置中的系统所释放比例。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1561,17 +1548,17 @@ class WechatSettings():
             settings.close()
     
     @staticmethod
-    def Save_chat_history(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Save_chat_history(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信打开或关闭微信设置中的保留聊天记录选项。\n
+        该方法用来PC微信打开或关闭微信设置中的保留聊天记录选项。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1599,17 +1586,17 @@ class WechatSettings():
             settings.close()
 
     @staticmethod
-    def Run_wechat_when_pc_boots(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Run_wechat_when_pc_boots(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信打开或关闭微设置中的开机自启动微信。\n
+        该方法用来PC微信打开或关闭微设置中的开机自启动微信。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1634,17 +1621,17 @@ class WechatSettings():
             settings.close()
     
     @staticmethod
-    def Using_default_browser(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Using_default_browser(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信打开或关闭微信设置中的使用系统默认浏览器打开网页\n
+        该方法用来PC微信打开或关闭微信设置中的使用系统默认浏览器打开网页
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
        
         '''
         choices={'open','close'}
@@ -1670,17 +1657,17 @@ class WechatSettings():
             settings.close()
 
     @staticmethod
-    def Auto_update_wechat(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Auto_update_wechat(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信打开或关闭微信设置中的有更新时自动升级微信。\n
+        该方法用来PC微信打开或关闭微信设置中的有更新时自动升级微信。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
@@ -1708,14 +1695,14 @@ class WechatSettings():
     @staticmethod
     def Clear_chat_history(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信清空所有聊天记录,谨慎使用。\n
+        该方法用来PC微信清空所有聊天记录,谨慎使用。
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         general_settings=settings.child_window(**TabItems.GeneralTabItem)
@@ -1730,14 +1717,14 @@ class WechatSettings():
     @staticmethod
     def Close_auto_log_in(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信关闭自动登录,若需要开启需在手机端设置。\n
+        该方法用来PC微信关闭自动登录,若需要开启需在手机端设置。
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         account_settings=settings.child_window(**TabItems.MyAccountTabItem)
@@ -1756,17 +1743,17 @@ class WechatSettings():
             raise AlreadyCloseError(f'已关闭自动登录选项,无需关闭！')
     
     @staticmethod
-    def Show_web_search_history(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Show_web_search_history(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信打开或关闭微信设置中的显示网络搜索历史。\n
+        该方法用来PC微信打开或关闭微信设置中的显示网络搜索历史。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1791,17 +1778,17 @@ class WechatSettings():
             settings.close()
 
     @staticmethod
-    def New_message_alert_sound(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def New_message_alert_sound(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭设置中的新消息通知声音。\n
+        该方法用来PC微信开启或关闭设置中的新消息通知声音。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭\n   
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭 
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1826,17 +1813,17 @@ class WechatSettings():
             settings.close()
 
     @staticmethod
-    def Voice_and_video_calls_alert_sound(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+    def Voice_and_video_calls_alert_sound(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭设置中的语音和视频通话通知声音。\n
+        该方法用来PC微信开启或关闭设置中的语音和视频通话通知声音。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         
         '''
         choices={'open','close'}
@@ -1861,17 +1848,17 @@ class WechatSettings():
         settings.close()
 
     @staticmethod
-    def Moments_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Moments_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭设置中的朋友圈消息提示。\n
+        该方法用来PC微信开启或关闭设置中的朋友圈消息提示。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1896,19 +1883,21 @@ class WechatSettings():
             settings.close()
     
     @staticmethod
-    def Channel_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Channel_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭设置中的视频号消息提示。\n
+        该方法用来PC微信开启或关闭设置中的视频号消息提示。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
+        if state not in choices:
+            raise WrongParameterError
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         general_settings=settings.child_window(**TabItems.NotificationsTabItem)
         general_settings.click_input()
@@ -1929,19 +1918,21 @@ class WechatSettings():
             settings.close()
 
     @staticmethod
-    def Topstories_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Topstories_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭设置中的看一看消息提示。\n
+        该方法用来PC微信开启或关闭设置中的看一看消息提示。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
+        if state not in choices:
+            raise WrongParameterError
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         general_settings=settings.child_window(**TabItems.NotificationsTabItem)
         general_settings.click_input()
@@ -1962,17 +1953,17 @@ class WechatSettings():
             settings.close()
 
     @staticmethod
-    def Miniprogram_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+    def Miniprogram_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信开启或关闭设置中的小程序消息提示。\n
+        该方法用来PC微信开启或关闭设置中的小程序消息提示。
         Args:
-            state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         choices={'open','close'}
         if state not in choices:
@@ -1999,15 +1990,15 @@ class WechatSettings():
     @staticmethod
     def Change_capture_screen_shortcut(shortcuts:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信修改微信设置中截取屏幕的快捷键。\n
+        该方法用来PC微信修改微信设置中截取屏幕的快捷键。
         Args:
-            shortcuts:\t快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            shortcuts:快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         
         '''
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
@@ -2026,15 +2017,15 @@ class WechatSettings():
     @staticmethod
     def Change_open_wechat_shortcut(shortcuts:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信修改微信设置中打开微信的快捷键。\n
+        该方法用来PC微信修改微信设置中打开微信的快捷键。
         Args:
-            shortcuts:\t快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            shortcuts:快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -2052,15 +2043,15 @@ class WechatSettings():
     @staticmethod
     def Change_lock_wechat_shortcut(shortcuts:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信修改微信设置中锁定微信的快捷键。\n
+        该方法用来PC微信修改微信设置中锁定微信的快捷键。
         Args:
-            shortcuts:\t快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            shortcuts:快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-           close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+           close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -2078,17 +2069,17 @@ class WechatSettings():
     @staticmethod
     def Change_send_message_shortcut(shortcut:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信修改微信设置中发送消息的快捷键。\n
+        该方法用来PC微信修改微信设置中发送消息的快捷键。
         Args:
-            shortcut:\t快捷键键位取值为0或1,对应Enter或ctrl+enter。\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            shortcut:快捷键键位取值为0或1,对应Enter或ctrl+enter。
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
-        if shortcut not in [0,1]:
+        if shortcut not in {0,1}:
             raise WrongParameterError('shortcut的值应为0或1!')
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         Shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -2107,14 +2098,14 @@ class WechatSettings():
 
     def Change_Language(lang:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来PC微信修改语言。\n
+        该方法用来PC微信修改语言。
         Args:
-            lang:\t语言名称,只支持简体中文,English,繁体中文,使用0,1,2表示。\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            lang:语言名称,只支持简体中文,English,繁体中文,使用0,1,2表示。
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         language_map={0:'简体中文',1:'英文',2:'繁体中文'}
         if lang not in language_map.keys():
@@ -2143,14 +2134,14 @@ class WechatSettings():
     @staticmethod
     def Shortcut_default(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
         '''
-        该方法用来PC微信将快捷键恢复为默认设置。\n
+        该方法用来PC微信将快捷键恢复为默认设置。
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
         '''
         settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
         shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -2160,20 +2151,22 @@ class WechatSettings():
         print('已恢复快捷键为默认设置')
         if close_settings_window:
             settings.close()
-class Call():
 
+
+class Call():
+    '''针对微信电话的一些方法.主要包括拨打语音视频电话'''
     @staticmethod
     def voice_call(friend:str,search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来给好友拨打语音电话\n
+        该方法用来给好友拨打语音电话
         Args:
-            friend:好友备注\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         main_window=Tools.open_dialog_window(friend,wechat_path,search_pages=search_pages,is_maximize=is_maximize)[1]  
         Tool_bar=main_window.child_window(**Main_window.ChatToolBar)
@@ -2185,15 +2178,15 @@ class Call():
     @staticmethod
     def video_call(friend:str,search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来给好友拨打视频电话\n
+        该方法用来给好友拨打视频电话
         Args:
-            friend:\t好友备注.\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注.
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         main_window=Tools.open_dialog_window(friend,wechat_path,search_pages=search_pages,is_maximize=is_maximize)[1]  
         Tool_bar=main_window.child_window(**Main_window.ChatToolBar)
@@ -2205,16 +2198,16 @@ class Call():
     @staticmethod
     def voice_call_in_group(group_name:str,friends:list[str],search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来在群聊中发起语音电话\n
+        该方法用来在群聊中发起语音电话
         Args:
-            group_name:\t群聊备注\n
-            friends:\t所有要呼叫的群友备注\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊备注
+            friends:所有要呼叫的群友备注
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            lose_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            lose_wechat:任务结束后是否关闭微信,默认关闭
         '''
         main_window=Tools.open_dialog_window(friend=group_name,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize)[1]  
         Tool_bar=main_window.child_window(**Main_window.ChatToolBar)
@@ -2240,23 +2233,20 @@ class Call():
 
 
 class FriendSettings():
-    '''这个模块包括:修改好友备注,获取聊天记录,删除联系人,设为星标朋友,将好友聊天界面置顶\n
-    消息免打扰,置顶聊天,清空聊天记录,加入黑名单,推荐给朋友,取消设为星标朋友,取消消息免打扰,\n
-    取消置顶聊天,取消聊天界面置顶,移出黑名单,添加好友,通过昵称或备注获取单个或多个好友微信号共计18项功能\n'''
-    
+    '''针对微信好友设置的一些方法,基本包含了PC微信针对好友的所有操作'''
     @staticmethod
-    def pin_friend(friend:str,state:str='open',search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True):
+    def pin_friend(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来将好友在会话内置顶或取消置顶\n
+        该方法用来将好友在会话内置顶或取消置顶
         Args:
-            friend:\t好友备注。\n
-            state:取值为open或close,默认值为open,用来决定置顶或取消置顶好友,state为open时执行置顶操作,state为close时执行取消置顶操作\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注。
+            state:取值为open或close,,用来决定置顶或取消置顶好友,state为open时执行置顶操作,state为close时执行取消置顶操作\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -2280,18 +2270,18 @@ class FriendSettings():
             main_window.close()
 
     @staticmethod   
-    def mute_friend_notifications(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def mute_friend_notifications(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来开启或关闭好友的消息免打扰\n
+        该方法用来开启或关闭好友的消息免打扰
         Args:
-            friend:好友备注\n
-            state:取值为open或close,默认值为open,用来决定开启或关闭好友的消息免打扰设置,state为open时执行开启消息免打扰操作,state为close时执行关闭消息免打扰操作\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            state:取值为open或close,用来决定开启或关闭好友的消息免打扰设置,state为open时执行开启消息免打扰操作,state为close时执行关闭消息免打扰操作\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -2318,18 +2308,18 @@ class FriendSettings():
                 main_window.close()
 
     @staticmethod
-    def sticky_friend_on_top(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def sticky_friend_on_top(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来开启或关闭好友的聊天置顶\n
+        该方法用来开启或关闭好友的聊天置顶
         Args:
-            friend:\t好友备注\n 
-            state:取值为open或close,默认值为open,用来决定开启或关闭好友的聊天置顶设置,state为open时执行开启聊天置顶操作,state为close时执行关闭消息免打扰操作\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            state:取值为open或close,用来决定开启或关闭好友的聊天置顶设置,state为open时执行开启聊天置顶操作,state为close时执行关闭消息免打扰操作\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -2358,15 +2348,15 @@ class FriendSettings():
     @staticmethod
     def clear_friend_chat_history(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         ''' 
-        该方法用来清空与好友的聊天记录\n
+        该方法用来清空与好友的聊天记录
         Args:
-            friend:\t好友备注\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         
         '''
         friend_settings_window,main_window=Tools.open_friend_settings(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
@@ -2380,15 +2370,15 @@ class FriendSettings():
     @staticmethod
     def delete_friend(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         ''' 
-        该方法用来删除好友\n
+        该方法用来删除好友
         Args:
-            friend:好友备注\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         delete_friend_item=menu.child_window(**MenuItems.DeleteMenuItem)
@@ -2403,16 +2393,16 @@ class FriendSettings():
     @staticmethod
     def add_new_friend(phone_number:str=None,wechat_number:str=None,request_content:str=None,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来添加新朋友\n
+        该方法用来添加新朋友
         Args:
-            phone_number:\t手机号\n
-            wechat_number:\t微信号\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            phone_number:手机号
+            wechat_number:微信号
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        注意:手机号与微信号至少要有一个!\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+        注意:手机号与微信号至少要有一个!
         '''
         desktop=Desktop(**Independent_window.Desktop)
         main_window=Tools.open_contacts(wechat_path,is_maximize=is_maximize)
@@ -2481,16 +2471,16 @@ class FriendSettings():
     @staticmethod
     def change_friend_remark(friend:str,remark:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该函数用来修改好友详情页面内的备注\n
+        该函数用来修改好友详情页面内的备注
         Args:
-            friend:\t好友备注或昵称\n
-            remark:\t待修改的好友备注\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注或昵称
+            remark:待修改的好友备注
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         if friend==remark:
             raise SameNameError
@@ -2515,17 +2505,17 @@ class FriendSettings():
     @staticmethod
     def change_friend_tag(friend:str,tag:str,clear_all:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来修改好友详情页的标签\n
+        该方法用来修改好友详情页的标签
         Args:
-            friend:\t好友备注\n
-            tag:\t标签名\n
-            clear_all:\t是否删除掉先前标注的所有Tag,默认为False不删除
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            tag:标签名
+            clear_all:是否删除掉先前标注的所有Tag,默认为False不删除
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         change_remark=menu.child_window(**MenuItems.EditContactMenuItem)
@@ -2553,16 +2543,16 @@ class FriendSettings():
     @staticmethod
     def change_friend_description(friend:str,description:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来修改好友详情页内的描述\n
+        该方法用来修改好友详情页内的描述
         Args:
-            friend:\t好友备注\n
-            description:\t对好友的描述\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            description:对好友的描述
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
-                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         change_remark=menu.child_window(**MenuItems.EditContactMenuItem)
@@ -2585,17 +2575,17 @@ class FriendSettings():
     @staticmethod
     def change_friend_phone_number(friend:str,phone_num:str,clear_all:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来修改好友详情页的电话号\n
+        该方法用来修改好友详情页的电话号
         Args:
-            friend:\t好友备注\n
-            pnone_num:\t好友电话号码\n
-            clear_all:\t是否删除掉先前备注的所有电话号\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            pnone_num:好友电话号码
+            clear_all:是否删除掉先前备注的所有电话号
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         change_remark=menu.child_window(**MenuItems.EditContactMenuItem)
@@ -2619,18 +2609,18 @@ class FriendSettings():
             main_window.close()
 
     @staticmethod
-    def add_friend_to_blacklist(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def add_friend_to_blacklist(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来将好友添加至黑名单\n
+        该方法用来将好友添加至黑名单
         Args:
-            friend:\t好友备注\n
-            state:\t取值为open或close,默认值为open,用来决定是否将好友添加至黑名单,state为open时执行将好友加入黑名单操作,state为close时执行将好友移出黑名单操作。\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为0,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注
+            state:取值为open或close,,用来决定是否将好友添加至黑名单,state为open时执行将好友加入黑名单操作,state为close时执行将好友移出黑名单操作。\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为0,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -2661,18 +2651,18 @@ class FriendSettings():
                 main_window.close()
             
     @staticmethod
-    def set_friend_as_star_friend(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def set_friend_as_star_friend(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来将好友设置为星标朋友\n
+        该方法用来将好友设置为星标朋友
         Args:
-            friend:好友备注。\n
-            state:\t取值为open或close,默认值为open,用来决定是否将好友设为星标朋友,state为open时执行将好友设为星标朋友操作,state为close时执行不再将好友设为星标朋友\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注。
+            state:取值为open或close,,用来决定是否将好友设为星标朋友,state为open时执行将好友设为星标朋友操作,state为close时执行不再将好友设为星标朋友\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
-                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -2700,19 +2690,19 @@ class FriendSettings():
                 main_window.close()
 
     @staticmethod    
-    def change_friend_privacy(friend:str,privacy:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def change_friend_privacy(friend:str,privacy:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该函数用来修改好友权限\n
+        该函数用来修改好友权限
         Args:
-            friend:好友备注。\n
-            privacy:好友权限,共有:'仅聊天',"聊天、朋友圈、微信运动等",'不让他（她）看',"不看他（她）"四种\n
-            state:取值为open或close,用来决定上述四个权限的开启或关闭\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注。
+            privacy:好友权限,共有:'仅聊天',"聊天、朋友圈、微信运动等",'不让他（她）看',"不看他（她）"四种
+            state:取值为open或close,用来决定上述四个权限的开启或关闭
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         privacy_rights=['仅聊天',"聊天、朋友圈、微信运动等",'不让他（她）看',"不看他（她）"]
         states=['open','close']
@@ -2819,16 +2809,16 @@ class FriendSettings():
     @staticmethod
     def share_contact(friend:str,others:list[str],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该函数用来推荐好友给其他人\n
+        该函数用来推荐好友给其他人
         Args:
-            friend:\t被推荐好友备注\n
-            others:\t推荐人备注列表\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:被推荐好友备注
+            others:推荐人备注列表
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         share_contact=menu.child_window(**MenuItems.ShareContactMenuItem)
@@ -2891,15 +2881,15 @@ class FriendSettings():
     @staticmethod
     def get_friend_wechat_number(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法根据微信备注获取单个好友的微信号\n
+        该方法根据微信备注获取单个好友的微信号
         Args:
-            friend:\t好友备注。\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友备注。
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         profile_window,main_window=Tools.open_friend_profile(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         wechat_number=profile_window.child_window(control_type='Text',found_index=4).window_text()
@@ -2911,14 +2901,14 @@ class FriendSettings():
     @staticmethod
     def get_friends_wechat_numbers(friends:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
         '''
-        该方法根据微信备注获取多个好友微信号\n
+        该方法根据微信备注获取多个好友微信号
         Args:
-            friends:\t所有待获取微信号的好友的备注列表。\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:所有待获取微信号的好友的备注列表。
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         wechat_numbers=[]
         for friend in friends:
@@ -2934,16 +2924,16 @@ class FriendSettings():
     @staticmethod
     def tickle_friend(friend:str,maxSearchNum:int=50,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来拍一拍好友\n
+        该方法用来拍一拍好友
         Args:
-            friend:好友备注\n
+            friend:好友备注
             maxSearchNum:主界面找不到好友聊天记录时在聊天记录窗口内查找好友聊天信息时的最大查找次数,默认为20,如果历史信息比较久远,可以更大一些\n
             search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         def find_firend_buttons_in_chatList(chatlist):
             if len(chatlist.children())==0:
@@ -3027,101 +3017,31 @@ class FriendSettings():
             chat.close()
 
     @staticmethod
-    def get_chat_history(friend:str,number:int=10,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+    def get_chat_history(
+        friend:str,number:int,is_json:bool=True,
+        capture_screen:bool=False,folder_path:str=None,
+        search_pages:int=5,wechat_path:str=None,
+        is_maximize:bool=True,close_wechat:bool=True)->(list[tuple]|str):
         '''
-        该方法用来获取好友或群聊的聊天记录,返回值为json\n
+        该函数用来获取好友或群聊指定数量的聊天记录,返回值为json或list[tuple]
         Args:
-            friend:\t好友或群聊备注或昵称\n
-            number:\t待获取的聊天记录条数,默认10条\n
-            capture_scren:\t聊天记录是否截屏,默认不截屏\n
-            folder_path:\t存放聊天记录截屏图片的文件夹路径\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注或昵称
+            number:待获取的聊天记录条数
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            capture_scren:聊天记录是否截屏,默认不截屏
+            folder_path:存放聊天记录截屏图片的文件夹路径
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:任务结束后是否关闭微信,默认关闭\n'
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
-            json格式:[{'发送人','时间','内容'}]*number
-        '''
-        def get_info(message):
-            message_sender=message.descendants(control_type='Text')[0].window_text()#无论什么类型消息,发送人永远是属性为Texts的UI组件中的第一个
-            message_time=message.descendants(control_type='Text')[1].window_text()#无论什么类型消息.发送时间都是属性为Texts的UI组件中的第二个
-            #至于消息的内容那就需要仔细判断一下了
-            specialMegCN={'[图片]':'图片消息','[视频]':'视频消息','[动画表情]':'动画表情','[视频号]':'视频号'}
-            specialMegEN={'[Photo]':'图片消息','[Video]':'视频消息','[Sticker]':'动画表情','[Channel]':'视频号'}
-            specialMegTC={'[圖片]':'图片消息','[影片]':'视频消息','[動態貼圖]':'动画表情','[影音號]':'视频号'}
-            #不同语言,处理消息内容时不同
-            if language=='简体中文':
-                if message.window_text() in specialMegCN.keys():#内容在特殊消息中
-                    message_content=specialMegCN.get(message.window_text())
-                else:#文件,卡片链接,语音,以及正常的文本消息
-                    if message.window_text()=='[文件]':
-                        filename=message.descendants(control_type='Text')[2].texts()[0]
-                        message_content=f'文件:{filename}'
-                    elif re.match(r'\[语音\]\d+秒',message.window_text()):
-                        message_content='语音消息'
-                    elif len(message.descendants(control_type='Text'))>3:#
-                        cardContent=message.descendants(control_type='Text')[2:]
-                        cardContent=[link.window_text() for link in cardContent]
-                        if '微信转账' in cardContent:
-                            index=cardContent.index('微信转账')
-                            message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                        else:
-                            message_content='卡片内容:'+','.join(cardContent)
-                    else:#正常文本
-                        texts=message.descendants(control_type='Text')
-                        texts=[text.window_text() for text in texts]
-                        message_content=texts[2]
-                    
-            if language=='英文':
-                if message.window_text() in specialMegEN.keys():
-                    message_content=specialMegEN.get(message.window_text())
-                else:#文件,卡片链接,语音,以及正常的文本消息
-                    if message.window_text()=='[File]':
-                        filename=message.descendants(control_type='Text')[2].texts()[0]
-                        message_content=f'文件:{filename}'
-                    elif re.match(r'\[Audio\]\d+s',message.window_text()):
-                        message_content='语音消息'
-
-                    elif len(message.descendants(control_type='Text'))>3:#
-                        cardContent=message.descendants(control_type='Text')[2:]
-                        cardContent=[link.window_text() for link in cardContent]
-                        if 'Weixin Transfer' in cardContent:
-                            index=cardContent.index('Weixin Transfer')
-                            message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                        else:
-                            message_content='卡片内容:'+','.join(cardContent)
-                    else:#正常文本
-                        texts=message.descendants(control_type='Text')
-                        texts=[text.window_text() for text in texts]
-                        message_content=texts[2]
-            
-            if language=='繁体中文':
-                if message.window_text() in specialMegTC.keys():
-                    message_content=specialMegTC.get(message.window_text())
-                else:#文件,卡片链接,语音,以及正常的文本消息
-                    if message.window_text()=='[檔案]':
-                        filename=message.descendants(control_type='Text')[2].texts()[0]
-                        message_content=f'文件:{filename}'
-                    elif re.match(r'\[語音\]\d+秒',message.window_text()):
-                        message_content='语音消息'
-                    elif len(message.descendants(control_type='Text'))>3:#
-                        cardContent=message.descendants(control_type='Text')[2:]
-                        cardContent=[link.window_text() for link in cardContent]
-                        if message.window_text()=='' and '微信轉賬' in cardContent:
-                            index=cardContent.index('微信轉賬')
-                            message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                        else:
-                            message_content='链接卡片内容:'+','.join(cardContent)
-                    else:#正常文本
-                        texts=message.descendants(control_type='Text')
-                        texts=[text.window_text() for text in texts]
-                        message_content=texts[2]
-            return message_sender,message_time,message_content
-    
+            chat_history:格式:[('发送人','时间','内容')]*number,number为实际聊天记录条数
+        '''    
         def ByNum():
-            #不指定起始和截止时间
+            #根据数量来获取聊天记录,后序还会增加一个ByDate
+            chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
             rec=chat_history_window.rectangle()
             mouse.click(coords=(rec.right-10,rec.bottom-10))
             pyautogui.press('End')
@@ -3129,8 +3049,16 @@ class FriendSettings():
             contentList=chat_history_window.child_window(**Lists.ChatHistoryList)
             if not contentList.exists():    
                 chat_history_window.close()
+                if Systemsettings.is_empty_folder(folder_path) and temp:
+                    os.removedirs(folder_path)
                 raise NoChatHistoryError(f'你还未与{friend}聊天,无法获取聊天记录!')  
             selected_items=[] #selected_items用来存放向上遍历过程中选中的聊天记录          
+            last_item=contentList.children(control_type='ListItem')[-1]
+            #点击最后一条聊天记录
+            rec=last_item.rectangle()
+            #注意不能直接click_input,要点击最右边，click_input默认点击中间
+            #如果是视频或者链接,直接就打开了，无法继续向上遍历
+            mouse.click(coords=(rec.right-30,rec.bottom-20))
             for _ in range(number):
                 pyautogui.press('up',_pause=False,presses=2)
                 selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
@@ -3141,7 +3069,7 @@ class FriendSettings():
                 #也就是当前selected_item在selected_items的倒数第二个时，就可以直接退出了，当然，必须得保证selected_items大于2
                 if len(selected_items)>2 and selected_item==selected_items[-2]:
                     break
-                chat_history.append(get_info(selected_item))
+                chat_history.append(Tools.parse_chat_history(selected_item))
                 ############################################
             pyautogui.press('END')
             ###############################################################
@@ -3149,14 +3077,12 @@ class FriendSettings():
             #selected_items最多也就是所有的聊天记录
             #length是向上时每一页的聊天记录数量，比较一下length是否达到selected_items内的聊天记录数量，如果达到那么不再截取每一页的图片
             if capture_screen:
+                mouse.click(coords=(rec.right-30,rec.bottom-20))
                 Num=1
                 length=len(contentList.children(control_type='ListItem'))
                 while length<len(selected_items):
                     chat_history_image=chat_history_window.capture_as_image()
-                    if folder_path:
-                        pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
-                    else:
-                        pic_path=os.path.abspath(os.path.join(os.getcwd(),f'与{friend}的聊天记录{Num}.png'))
+                    pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
                     chat_history_image.save(pic_path)
                     pyautogui.keyDown('pageup',_pause=False)
                     Num+=1
@@ -3173,35 +3099,181 @@ class FriendSettings():
             chat_history_window.close()
             if len(chat_history)<number:
                 warn(message=f"你与{friend}的聊天记录不足{number},已为你导出全部的{len(chat_history)}条聊天记录",category=ChatHistoryNotEnough)
-                chat_history_json=json.dumps(chat_history,ensure_ascii=False,indent=4)
-            else:
-                chat_history_json=json.dumps(chat_history[:number],ensure_ascii=False,indent=4)
-            return chat_history_json
-        
+            if is_json:
+                chat_history=json.dumps(chat_history,ensure_ascii=False,indent=2)
+            return chat_history
+        temp=False
+        if capture_screen and not folder_path:
+            folder_name=f'{friend}聊天记录截图'
+            folder_path=os.path.join(os.getcwd(),folder_name)
+            os.makedirs(folder_path,exist_ok=True)
+            temp=True
         if capture_screen and folder_path:
-            folder_path=re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',folder_path)
             if not os.path.isdir(folder_path):
                 raise NotFolderError(r'给定路径不是文件夹!无法保存聊天记录截图,请重新选择文件夹！')
-        chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
-        chat_history_json=ByNum()
+        chat_history=ByNum()        
         ########################################################################
-        return chat_history_json
-   
-class GroupSettings():
-
+        return chat_history
+    
     @staticmethod
-    def pin_group(group_name:str,state:str='open',search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True):
+    def get_recent_chat_history(friend:str,recent:Literal['Today','Yesterday','Week','Month','Year'],
+        is_json:bool=True,capture_screen:bool=False,
+        folder_path:str=None,search_pages:int=5,wechat_path:str=None,
+        is_maximize:bool=True,close_wechat:bool=True)->list[tuple]|str:    
         '''
-        该方法用来将群聊在会话内置顶或取消置顶\n
+        该方法用来获取好友或群聊最近的的聊天记录,返回值为json
         Args:
-            group_name:\t群聊备注。\n
-            state:取值为open或close,默认值为open,用来决定置顶或取消置顶群聊,state为open时执行置顶操作,state为close时执行取消置顶操作\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注或昵称
+            recent:获取最近聊天记录的时间节点,可选值为'Today','Yesterday','Week','Month','Year'分别获取当天,昨天,本周,本月,本年
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            capture_screen:聊天记录是否截屏,默认不截屏
+            folder_path:存放聊天记录截屏图片的文件夹路径
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法
+                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+        Returns:
+            chat_history:格式:[('发送人','时间','内容')]*number,number为实际聊天记录条数
+        '''
+        def ByDate():
+            chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
+            at_top=False
+            thismonth='/'+str(int(time.strftime('%m')))+'/'#当月
+            thisyear=str(int(time.strftime('%y')))+'/'#去年
+            lastmonth='/'+str(int(time.strftime('%m'))-1)+'/'#上个月
+            lastyear=str(int(time.strftime('%y'))-1)+'/'#去年
+            yesterday='Yesterday' if language=='英文' else '昨天' 
+            rec=chat_history_window.rectangle()
+            mouse.click(coords=(rec.right-10,rec.bottom-10))
+            pyautogui.press('End')
+            chat_history=[]
+            contentList=chat_history_window.child_window(**Lists.ChatHistoryList)
+            if not contentList.exists():    
+                chat_history_window.close()
+                if Systemsettings.is_empty_folder(folder_path) and temp:
+                    os.removedirs(folder_path)
+                raise NoChatHistoryError(f'你还未与{friend}聊天,无法获取聊天记录!')  
+            selected_items=[] #selected_items用来存放向上遍历过程中选中的聊天记录          
+            last_item=contentList.children(control_type='ListItem')[-1]
+            last_time=Tools.parse_chat_history(last_item)[1]
+            if '/' in last_time and recent in recent_modes[:3]:
+                print(f'最近的一条聊天记录时间为{last_time},本周无聊天记录!')
+            elif '/' in last_time and recent in recent_modes[:3] and thisyear not in last_time:
+                print(f'最近的一条聊天记录时间为{last_time},本年内无聊天记录!')
+            elif '/' in last_time and recent=='Month' and thisyear in last_time and thismonth not in last_time:
+                print(f'最近的一条聊天记录时间为{last_time},本月无聊天记录!')
+            else:
+                #点击最后一条聊天记录
+                rec=last_item.rectangle()
+                #注意不能直接click_input,要点击最右边，click_input默认点击中间
+                #如果是视频或者链接,直接就打开了，无法继续向上遍历
+                mouse.click(coords=(rec.right-30,rec.bottom-20))
+                if recent!='Yesterday':
+                    while True:     
+                        pyautogui.press('up',_pause=False,presses=2)
+                        selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                        selected_items.append(selected_item)
+                        parse_result=Tools.parse_chat_history(selected_item)
+                        if recent=='Year' and lastyear in parse_result[1]:
+                            break
+                        if recent=='Month' and lastmonth in parse_result[1]:
+                            break
+                        if recent=='Week' and '/' in parse_result[1]:
+                            break
+                        if recent=='Today' and ':' not in parse_result[1]:
+                            break
+                        if len(selected_items)>2 and selected_item==selected_items[-2]:
+                            at_top=True
+                            break
+                        chat_history.append(parse_result)
+                    if at_top:
+                        print(f'你与{friend}的聊天记录已包含全部,无法获取更多！')
+                if recent=='Yesterday':
+                    no_yesterday=False
+                    while True:
+                        pyautogui.press('up',_pause=False,presses=2)
+                        selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                        selected_items.append(selected_item)
+                        parse_result=Tools.parse_chat_history(selected_item)
+                        if yesterday in parse_result[1]:
+                            chat_history.append(parse_result)
+                            break
+                        if '/' in parse_result[1]:
+                            no_yesterday=True
+                            break
+                        if '/' not in parse_result[1] and ':' not in parse_result[1] and yesterday not in parse_result[1]:
+                            no_yesterday=True
+                            break
+                    if not no_yesterday:    
+                        while True:
+                            pyautogui.press('up',_pause=False,presses=2)
+                            selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                            selected_items.append(selected_item)
+                            parse_result=Tools.parse_chat_history(selected_item)
+                            chat_history.append(parse_result)
+                            if yesterday not in parse_result[1]:
+                                break
+                    if no_yesterday:
+                        print('昨天并无聊天记录,无法获取!')
+                pyautogui.press('END')
+                if capture_screen and chat_history:
+                    mouse.click(coords=(rec.right-30,rec.bottom-20))
+                    Num=1
+                    length=len(contentList.children(control_type='ListItem'))
+                    while length<len(selected_items):
+                        chat_history_image=chat_history_window.capture_as_image()
+                        if folder_path:
+                            pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
+                        else:
+                            pic_path=os.path.abspath(os.path.join(os.getcwd(),f'与{friend}的聊天记录{Num}.png'))
+                        chat_history_image.save(pic_path)
+                        pyautogui.keyDown('pageup',_pause=False)
+                        Num+=1
+                        length+=len(contentList.children(control_type='ListItem'))
+                    #退出循环后还要记得截最后一张图片
+                    chat_history_image=chat_history_window.capture_as_image()
+                    pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
+                    chat_history_image.save(pic_path)
+                    pyautogui.press('END')
+                    print(f'共保存聊天记录截图{Num}张')
+            chat_history_window.close()
+            if is_json:
+                chat_history=json.dumps(chat_history,ensure_ascii=False,indent=2)
+            if Systemsettings.is_empty_folder(folder_path) and temp:
+                os.removedirs(folder_path)
+            return chat_history
+        temp=False
+        recent_modes=['Today','Yesterday','Week','Month','Year']
+        if recent not in recent_modes:
+            raise WrongParameterError('recent取值错误!')
+        if capture_screen and not folder_path:
+            folder_name=f'{friend}聊天记录截图'
+            folder_path=os.path.join(os.getcwd(),folder_name)
+            os.makedirs(folder_path,exist_ok=True)
+            temp=True
+        if capture_screen and folder_path:
+            if not os.path.isdir(folder_path):
+                raise NotFolderError(r'给定路径不是文件夹!无法保存聊天记录截图,请重新选择文件夹！')
+        chat_history=ByDate()
+        return chat_history
+
+class GroupSettings():
+    '''针对微信群聊设置的一些方法,基本包含了PC微信针对微信群聊的所有操作'''
+    @staticmethod
+    def pin_group(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True):
+        '''
+        该方法用来将群聊在会话内置顶或取消置顶
+        Args:
+            group_name:群聊备注。
+            state:取值为open或close,,用来决定置顶或取消置顶群聊,state为open时执行置顶操作,state为close时执行取消置顶操作\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -3225,39 +3297,39 @@ class GroupSettings():
             main_window.close()
 
     @staticmethod
-    def create_group_chat(friends:list[str],group_name:str=None,wechat_path:str=None,is_maximize:bool=True,messages:list=[str],close_wechat:bool=True,delay:float=0.4):
+    def create_group_chat(friends:list[str],group_name:str=None,wechat_path:str=None,is_maximize:bool=True,messages:list[str]=[],delay:float=0.4,close_wechat:bool=True)->None:
         '''
-        该方法用来新建群聊\n
+        该函数用来新建群聊
         Args:
-            friends:\t新群聊的好友备注列表。\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friends:新群聊的好友备注列表。
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-            messages:\t建群后是否发送消息,messages非空列表,在建群后会发送消息\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+            messages:建群后是否发送消息,messages非空列表,在建群后会发送消息
+            delay:发送单条消息延迟,单位:秒/s,默认1s。
         '''
-        if len(friends)<=2:
+        if len(friends)<2:
             raise CantCreateGroupError
         main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
-        cerate_group_chat_button=main_window.child_window(**Buttons.CreateGroupChatButton)
+        cerate_group_chat_button=main_window.child_window(title="发起群聊",control_type="Button")
         cerate_group_chat_button.click_input()
         Add_member_window=main_window.child_window(**Main_window.AddMemberWindow)
         for member in friends:
-            search=Add_member_window.child_window(*Edits.SearchEdit)
+            search=Add_member_window.child_window(**Edits.SearchEdit)
             search.click_input()
             Systemsettings.copy_text_to_windowsclipboard(member)
             pyautogui.hotkey('ctrl','v')
             pyautogui.press("enter")
             pyautogui.press('backspace')
-            time.sleep(2)
-        confirm=Add_member_window.child_window(Buttons.CompleteButton)
+            time.sleep(0.5)
+        confirm=Add_member_window.child_window(**Buttons.CompleteButton)
         confirm.click_input()
-        time.sleep(10)
+        time.sleep(8)
         if messages:
             group_edit=main_window.child_window(**Main_window.CurrentChatWindow)
-            group_edit.click_input()
-            for message in messages:
+            for message in message:
                 Systemsettings.copy_text_to_windowsclipboard(message)
                 pyautogui.hotkey('ctrl','v')
                 time.sleep(delay)
@@ -3282,16 +3354,16 @@ class GroupSettings():
     @staticmethod
     def change_group_name(group_name:str,change_name:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来修改群聊名称\n
+        该方法用来修改群聊名称
         Args:
-            group_name:群聊名称\n
-            change_name:待修改的名称\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            change_name:待修改的名称
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         if group_name==change_name:
             raise SameNameError(f'待修改的群名需与先前的群名不同才可修改！')
@@ -3324,16 +3396,16 @@ class GroupSettings():
     @staticmethod
     def change_my_alias_in_group(group_name:str,my_alias:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来修改我在本群的昵称\n
+        该方法用来修改我在本群的昵称
         Args:
-            group_name:\t群聊名称\n
-            my_alias:\t待修改的我的群昵称\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            my_alias:待修改的我的群昵称
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         change_my_alias_button=group_chat_settings_window.child_window(**Buttons.MyAliasInGroupButton)
@@ -3355,16 +3427,16 @@ class GroupSettings():
     @staticmethod
     def change_group_remark(group_name:str,remark:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来修改群聊备注\n
+        该方法用来修改群聊备注
         Args:
-            group_name:\t群聊名称\n
-            remark:\t群聊备注\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            remark:群聊备注
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         change_group_remark_button=group_chat_settings_window.child_window(**Buttons.RemarkButton)
@@ -3384,18 +3456,18 @@ class GroupSettings():
             main_window.close()
     
     @staticmethod
-    def show_group_members_nickname(group_name:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def show_group_members_nickname(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来开启或关闭显示群聊成员名称\n
+        该方法用来开启或关闭显示群聊成员名称
         Args:
-            group_name:\t群聊名称\n
-            state:\t取值为open或close,默认值为open,用来决定是否显示群聊成员名称,state为open时执行将开启显示群聊成员名称操作,state为close时执行关闭显示群聊成员名称\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            state:取值为open或close,,用来决定是否显示群聊成员名称,state为open时执行将开启显示群聊成员名称操作,state为close时执行关闭显示群聊成员名称\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -3422,18 +3494,18 @@ class GroupSettings():
             main_window.close()
     
     @staticmethod
-    def mute_group_notifications(group_name:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def mute_group_notifications(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来开启或关闭群聊消息免打扰\n
+        该方法用来开启或关闭群聊消息免打扰
         Args:
-            group_name:\t群聊名称\n
-            state:\t取值为open或close,默认值为open,用来决定是否对该群开启消息免打扰,state为open时执行将开启消息免打扰操作,state为close时执行关闭消息免打扰\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            state:取值为open或close,,用来决定是否对该群开启消息免打扰,state为open时执行将开启消息免打扰操作,state为close时执行关闭消息免打扰\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -3464,16 +3536,16 @@ class GroupSettings():
     @staticmethod
     def sticky_group_on_top(group_name:str,state='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来将微信群聊聊天置顶或取消聊天置顶\n
+        该方法用来将微信群聊聊天置顶或取消聊天置顶
         Args:
-            group_name:\t群聊名称\n
-            state:\t取值为open或close,默认值为open,用来决定是否将该群聊聊天置顶,state为open时将该群聊聊天置顶,state为close时取消该群聊聊天置顶\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            state:取值为open或close,,用来决定是否将该群聊聊天置顶,state为open时将该群聊聊天置顶,state为close时取消该群聊聊天置顶\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -3501,18 +3573,18 @@ class GroupSettings():
                 main_window.close() 
 
     @staticmethod           
-    def save_group_to_contacts(group_name:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    def save_group_to_contacts(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来将群聊保存或取消保存到通讯录\n
+        该方法用来将群聊保存或取消保存到通讯录
         Args:
-            group_name:\t群聊名称\n
-            state:\t取值为open或close,默认值为open,用来,state为open时将该群聊保存至通讯录,state为close时取消该群保存到通讯录\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            state:取值为open或close,,用来,state为open时将该群聊保存至通讯录,state为close时取消该群保存到通讯录\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         choices=['open','close']
         if state not in choices:
@@ -3541,15 +3613,15 @@ class GroupSettings():
     @staticmethod
     def clear_group_chat_history(group_name:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来清空群聊聊天记录\n
+        该方法用来清空群聊聊天记录
         Args:
-            group_name:群聊名称\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         pyautogui.press('pagedown')
@@ -3563,15 +3635,15 @@ class GroupSettings():
     @staticmethod
     def quit_group_chat(group_name:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来退出微信群聊\n
+        该方法用来退出微信群聊
         Args:
-            group_name:\t群聊名称\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         pyautogui.press('pagedown')
@@ -3585,80 +3657,48 @@ class GroupSettings():
     @staticmethod
     def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友进群',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来邀请他人至群聊,建议:30-50人/群/日,否则可能限制该功能甚至封号!\n
-        邀请进群的人数小于30人时一次性拉取,超过30人后,会分批次,每隔5min一批\n
+        该方法用来邀请他人至群聊,建议:30-50人/群/日,否则可能限制该功能甚至封号!
+        邀请进群的人数小于30人时一次性拉取,超过30人后,会分批次,每隔2min一批
         Args:
-            group_name:\t群聊名称\n
-            friends:\t所有待邀请好友备注列表\n
-            query:\t如果拉人进群请求存在的话,query为需要向群主或管理员发送的请求内容,默认为'拉好友进群'可以自行设置内容\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            friends:所有待邀请好友备注列表
+            query:如果拉人进群请求存在的话,query为需要向群主或管理员发送的请求内容,默认为'拉好友进群'可以自行设置内容\n
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
-        add=group_chat_settings_window.child_window(title='',control_type="Button",found_index=1)
-        Approval_window=main_window.child_window(**Panes.ApprovalPane)#群主开启邀请好友需经过同意后邀请好友会弹出该窗口需要向群主发送请求
-        GroupInvitationApprovalWindow=main_window.child_window(**Windows.LargeGroupInvitationApprovalWindow)#群聊人数超过100以上拉人时必须点击确认发送邀请链接
-        Add_member_window=main_window.child_window(**Main_window.AddMemberWindow)
-        searchList=Add_member_window.child_window(**Lists.SelectContactToAddList)
-        complete_button=Add_member_window.child_window(**Buttons.CompleteButton)
-        search=Add_member_window.child_window(**Edits.SearchEdit)
-        add.click_input()
-        if len(friends)<=30:
-            for other_friend in friends:
-                Systemsettings.copy_text_to_windowsclipboard(other_friend)
-                time.sleep(0.5)
-                pyautogui.hotkey('ctrl','v')
-                if not searchList.children(control_type='ListItem'):
-                    pass
-                if searchList.children(control_type='ListItem'):
-                    searchResult=searchList.children(control_type='ListItem',title=other_friend)
-                    if searchResult:
-                        searchResult[0].click_input()
-                pyautogui.hotkey('ctrl','a')
-                pyautogui.press('backspace')
-            complete_button.click_input()
-            if Approval_window.exists():
-                Systemsettings.copy_text_to_windowsclipboard(query)
-                Approval_window.child_window(control_type='Edit',found_index=0).click_input()
-                pyautogui.hotkey('ctrl','v')
-                Approval_window.child_window(control_type='Button',found_index=0).click_input()
-            if GroupInvitationApprovalWindow.exists():
-                GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
-        else:  
-            res=len(friends)%30#余数
-            for i in range(0,len(friends),30):#20个一批
-                if i+30<=len(friends): 
-                    for other_friend in friends[i:i+30]:
-                        Systemsettings.copy_text_to_windowsclipboard(other_friend)
-                        time.sleep(0.5)
-                        pyautogui.hotkey('ctrl','v')
-                        if not searchList.children(control_type='ListItem'):
-                            pass
-                        if searchList.children(control_type='ListItem'):
-                            searchResult=searchList.children(control_type='ListItem',title=other_friend)
-                            if searchResult:
-                                searchResult[0].click_input()
-                        pyautogui.hotkey('ctrl','a')
-                        pyautogui.press('backspace')
-                    complete_button.click_input()
-                    if Approval_window.exists():
-                        Systemsettings.copy_text_to_windowsclipboard(query)
-                        Approval_window.child_window(control_type='Edit',found_index=0).click_input()
-                        pyautogui.hotkey('ctrl','v')
-                        Approval_window.child_window(control_type='Button',found_index=0).click_input()
-                    if GroupInvitationApprovalWindow.exists():
-                        GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
-                    time.sleep(300)
-                    add.click_input()
-                    search.click_input()
-                else:
-                    pass
-            if res:
-                for other_friend in friends[len(friends)-res:len(friends)]:
+        showAllButton=group_chat_settings_window.child_window(**Buttons.ShowAllButton)
+        chatList=group_chat_settings_window.child_window(**Lists.ChatList)
+        #Notfriends为新增和移出两个按钮在不同语言下的名称，其在聊天列表中也是ListItem，
+        #当群聊人数少没有查看更多按钮时直接遍历获取window_text
+        #会把这两个东西的名称也包含进去，因此需要筛选一下
+        Notfriends={ListItems.AddListItem['title'],ListItems.RemoveListItem['title']}
+        if showAllButton.exists():
+            #查看更多按钮点击后,新增和移出两个按钮会消失不见
+            showAllButton.click_input()
+            group_members=[listitem for listitem in chatList.children(control_type='ListItem')]
+            group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+        else:
+            group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.window_text() not in Notfriends]
+            group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+        friends=[friend for friend in friends if friend not in group_members_nicknames]
+        if not friends:
+            print(f'待邀请好友已均位于{group_name}中,无法邀请至群聊中!')
+        if friends:
+            add=group_chat_settings_window.child_window(title='',control_type="Button",found_index=1)
+            Approval_window=main_window.child_window(**Panes.ApprovalPane)#群主开启邀请好友需经过同意后邀请好友会弹出该窗口需要向群主发送请求
+            GroupInvitationApprovalWindow=main_window.child_window(**Windows.LargeGroupInvitationApprovalWindow)#群聊人数超过100以上拉人时必须点击确认发送邀请链接
+            Add_member_window=main_window.child_window(**Main_window.AddMemberWindow)
+            searchList=Add_member_window.child_window(**Lists.SelectContactToAddList)
+            complete_button=Add_member_window.child_window(**Buttons.CompleteButton)
+            search=Add_member_window.child_window(**Edits.SearchEdit)
+            add.click_input()
+            if len(friends)<=30:
+                for other_friend in friends:
                     Systemsettings.copy_text_to_windowsclipboard(other_friend)
                     time.sleep(0.5)
                     pyautogui.hotkey('ctrl','v')
@@ -3670,7 +3710,7 @@ class GroupSettings():
                             searchResult[0].click_input()
                     pyautogui.hotkey('ctrl','a')
                     pyautogui.press('backspace')
-                    complete_button.click_input()#
+                complete_button.click_input()
                 if Approval_window.exists():
                     Systemsettings.copy_text_to_windowsclipboard(query)
                     Approval_window.child_window(control_type='Edit',found_index=0).click_input()
@@ -3678,24 +3718,74 @@ class GroupSettings():
                     Approval_window.child_window(control_type='Button',found_index=0).click_input()
                 if GroupInvitationApprovalWindow.exists():
                     GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
-        if group_chat_settings_window.exists():
-            group_chat_settings_window.close()
+            else:  
+                res=len(friends)%30#余数
+                for i in range(0,len(friends),30):#20个一批
+                    if i+30<=len(friends): 
+                        for other_friend in friends[i:i+30]:
+                            Systemsettings.copy_text_to_windowsclipboard(other_friend)
+                            time.sleep(0.5)
+                            pyautogui.hotkey('ctrl','v')
+                            if not searchList.children(control_type='ListItem'):
+                                pass
+                            if searchList.children(control_type='ListItem'):
+                                searchResult=searchList.children(control_type='ListItem',title=other_friend)
+                                if searchResult:
+                                    searchResult[0].click_input()
+                            pyautogui.hotkey('ctrl','a')
+                            pyautogui.press('backspace')
+                        complete_button.click_input()
+                        if Approval_window.exists():
+                            Systemsettings.copy_text_to_windowsclipboard(query)
+                            Approval_window.child_window(control_type='Edit',found_index=0).click_input()
+                            pyautogui.hotkey('ctrl','v')
+                            Approval_window.child_window(control_type='Button',found_index=0).click_input()
+                        if GroupInvitationApprovalWindow.exists():
+                            GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
+                        time.sleep(120)
+                        add.click_input()
+                        search.click_input()
+                    else:
+                        pass
+                if res:
+                    for other_friend in friends[len(friends)-res:len(friends)]:
+                        Systemsettings.copy_text_to_windowsclipboard(other_friend)
+                        time.sleep(0.5)
+                        pyautogui.hotkey('ctrl','v')
+                        if not searchList.children(control_type='ListItem'):
+                            pass
+                        if searchList.children(control_type='ListItem'):
+                            searchResult=searchList.children(control_type='ListItem',title=other_friend)
+                            if searchResult:
+                                searchResult[0].click_input()
+                        pyautogui.hotkey('ctrl','a')
+                        pyautogui.press('backspace')
+                        complete_button.click_input()#
+                    if Approval_window.exists():
+                        Systemsettings.copy_text_to_windowsclipboard(query)
+                        Approval_window.child_window(control_type='Edit',found_index=0).click_input()
+                        pyautogui.hotkey('ctrl','v')
+                        Approval_window.child_window(control_type='Button',found_index=0).click_input()
+                    if GroupInvitationApprovalWindow.exists():
+                        GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
+            if group_chat_settings_window.exists():
+                group_chat_settings_window.close()
         if close_wechat:
             main_window.close()
 
     @staticmethod
     def remove_friends_from_group(group_name:str,friends:list[str],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来将群成员移出群聊\n
+        该方法用来将群成员移出群聊
         Args:
-            group_name:\t群聊名称\n
-            friends:\t所有移出群聊的成员备注列表\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            friends:所有移出群聊的成员备注列表
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         delete=group_chat_settings_window.child_window(title='',control_type="Button",found_index=2)
@@ -3727,16 +3817,16 @@ class GroupSettings():
     @staticmethod
     def add_friends_from_group(group_name:str,friend:str,request_content:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来添加群成员为好友\n
+        该方法用来添加群成员为好友
         Args:
-            group_name:\t群聊名称\n
-            friend:\t待添加群聊成员群聊中的名称\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            friend:待添加群聊成员群聊中的名称
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         search=group_chat_settings_window.child_window(**Edits.SearchGroupMemeberEdit)
@@ -3771,16 +3861,16 @@ class GroupSettings():
     @staticmethod
     def edit_group_notice(group_name:str,content:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来编辑群公告\n
+        该方法用来编辑群公告
         Args:
-            group_name:\t群聊名称\n
-            content:\t群公告内容\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称
+            content:群公告内容
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat\t:任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         edit_group_notice_button=group_chat_settings_window.child_window(**Buttons.EditGroupNotificationButton)
@@ -3831,102 +3921,31 @@ class GroupSettings():
                     main_window.close()
 
     @staticmethod
-    def get_chat_history(friend:str,number:int=10,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+    def get_chat_history(
+        friend:str,number:int,is_json:bool=True,
+        capture_screen:bool=False,folder_path:str=None,
+        search_pages:int=5,wechat_path:str=None,
+        is_maximize:bool=True,close_wechat:bool=True)->(list[tuple]|str):
         '''
-        该方法用来获取好友或群聊的聊天记录,返回值为json\n
+        该函数用来获取好友或群聊指定数量的聊天记录,返回值为json或list[tuple]
         Args:
-            friend:\t好友或群聊备注或昵称\n
-            number:\t待获取的聊天记录条数,默认10条\n
-            capture_scren:\t聊天记录是否截屏,默认不截屏\n
-            folder_path:\t存放聊天记录截屏图片的文件夹路径\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注或昵称
+            number:待获取的聊天记录条数
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            capture_scren:聊天记录是否截屏,默认不截屏
+            folder_path:存放聊天记录截屏图片的文件夹路径
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:微信界面是否全屏,默认全屏。\n
-            close_wechat:任务结束后是否关闭微信,默认关闭\n'
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
-            json格式:[{'发送人','时间','内容'}]*number
-        '''
-        def get_info(message):
-            message_sender=message.descendants(control_type='Text')[0].window_text()#无论什么类型消息,发送人永远是属性为Texts的UI组件中的第一个
-            message_time=message.descendants(control_type='Text')[1].window_text()#无论什么类型消息.发送时间都是属性为Texts的UI组件中的第二个
-            #至于消息的内容那就需要仔细判断一下了
-            specialMegCN={'[图片]':'图片消息','[视频]':'视频消息','[动画表情]':'动画表情','[视频号]':'视频号'}
-            specialMegEN={'[Photo]':'图片消息','[Video]':'视频消息','[Sticker]':'动画表情','[Channel]':'视频号'}
-            specialMegTC={'[圖片]':'图片消息','[影片]':'视频消息','[動態貼圖]':'动画表情','[影音號]':'视频号'}
-            #不同语言,处理消息内容时不同
-            if language=='简体中文':
-                if message.window_text() in specialMegCN.keys():#内容在特殊消息中
-                    message_content=specialMegCN.get(message.window_text())
-                else:#文件,卡片链接,语音,以及正常的文本消息
-                    if message.window_text()=='[文件]':
-                        filename=message.descendants(control_type='Text')[2].texts()[0]
-                        message_content=f'文件:{filename}'
-                    elif re.match(r'\[语音\]\d+秒',message.window_text()):
-                        message_content='语音消息'
-                    elif len(message.descendants(control_type='Text'))>3:#
-                        cardContent=message.descendants(control_type='Text')[2:]
-                        cardContent=[link.window_text() for link in cardContent]
-                        if '微信转账' in cardContent:
-                            index=cardContent.index('微信转账')
-                            message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                        else:
-                            message_content='卡片内容:'+','.join(cardContent)
-                    else:#正常文本
-                        texts=message.descendants(control_type='Text')
-                        texts=[text.window_text() for text in texts]
-                        message_content=texts[2]
-                    
-            if language=='英文':
-                if message.window_text() in specialMegEN.keys():
-                    message_content=specialMegEN.get(message.window_text())
-                else:#文件,卡片链接,语音,以及正常的文本消息
-                    if message.window_text()=='[File]':
-                        filename=message.descendants(control_type='Text')[2].texts()[0]
-                        message_content=f'文件:{filename}'
-                    elif re.match(r'\[Audio\]\d+s',message.window_text()):
-                        message_content='语音消息'
-
-                    elif len(message.descendants(control_type='Text'))>3:#
-                        cardContent=message.descendants(control_type='Text')[2:]
-                        cardContent=[link.window_text() for link in cardContent]
-                        if 'Weixin Transfer' in cardContent:
-                            index=cardContent.index('Weixin Transfer')
-                            message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                        else:
-                            message_content='卡片内容:'+','.join(cardContent)
-                    else:#正常文本
-                        texts=message.descendants(control_type='Text')
-                        texts=[text.window_text() for text in texts]
-                        message_content=texts[2]
-            
-            if language=='繁体中文':
-                if message.window_text() in specialMegTC.keys():
-                    message_content=specialMegTC.get(message.window_text())
-                else:#文件,卡片链接,语音,以及正常的文本消息
-                    if message.window_text()=='[檔案]':
-                        filename=message.descendants(control_type='Text')[2].texts()[0]
-                        message_content=f'文件:{filename}'
-                    elif re.match(r'\[語音\]\d+秒',message.window_text()):
-                        message_content='语音消息'
-                    elif len(message.descendants(control_type='Text'))>3:#
-                        cardContent=message.descendants(control_type='Text')[2:]
-                        cardContent=[link.window_text() for link in cardContent]
-                        if message.window_text()=='' and '微信轉賬' in cardContent:
-                            index=cardContent.index('微信轉賬')
-                            message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                        else:
-                            message_content='链接卡片内容:'+','.join(cardContent)
-                    else:#正常文本
-                        texts=message.descendants(control_type='Text')
-                        texts=[text.window_text() for text in texts]
-                        message_content=texts[2]
-
-            return message_sender,message_time,message_content
-        
+            chat_history:格式:[('发送人','时间','内容')]*number,number为实际聊天记录条数
+        '''    
         def ByNum():
-            #不指定起始和截止时间
+            #根据数量来获取聊天记录,后序还会增加一个ByDate
+            chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
             rec=chat_history_window.rectangle()
             mouse.click(coords=(rec.right-10,rec.bottom-10))
             pyautogui.press('End')
@@ -3934,8 +3953,16 @@ class GroupSettings():
             contentList=chat_history_window.child_window(**Lists.ChatHistoryList)
             if not contentList.exists():    
                 chat_history_window.close()
+                if Systemsettings.is_empty_folder(folder_path) and temp:
+                    os.removedirs(folder_path)
                 raise NoChatHistoryError(f'你还未与{friend}聊天,无法获取聊天记录!')  
             selected_items=[] #selected_items用来存放向上遍历过程中选中的聊天记录          
+            last_item=contentList.children(control_type='ListItem')[-1]
+            #点击最后一条聊天记录
+            rec=last_item.rectangle()
+            #注意不能直接click_input,要点击最右边，click_input默认点击中间
+            #如果是视频或者链接,直接就打开了，无法继续向上遍历
+            mouse.click(coords=(rec.right-30,rec.bottom-20))
             for _ in range(number):
                 pyautogui.press('up',_pause=False,presses=2)
                 selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
@@ -3946,7 +3973,7 @@ class GroupSettings():
                 #也就是当前selected_item在selected_items的倒数第二个时，就可以直接退出了，当然，必须得保证selected_items大于2
                 if len(selected_items)>2 and selected_item==selected_items[-2]:
                     break
-                chat_history.append(get_info(selected_item))
+                chat_history.append(Tools.parse_chat_history(selected_item))
                 ############################################
             pyautogui.press('END')
             ###############################################################
@@ -3954,14 +3981,12 @@ class GroupSettings():
             #selected_items最多也就是所有的聊天记录
             #length是向上时每一页的聊天记录数量，比较一下length是否达到selected_items内的聊天记录数量，如果达到那么不再截取每一页的图片
             if capture_screen:
+                mouse.click(coords=(rec.right-30,rec.bottom-20))
                 Num=1
                 length=len(contentList.children(control_type='ListItem'))
                 while length<len(selected_items):
                     chat_history_image=chat_history_window.capture_as_image()
-                    if folder_path:
-                        pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
-                    else:
-                        pic_path=os.path.abspath(os.path.join(os.getcwd(),f'与{friend}的聊天记录{Num}.png'))
+                    pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
                     chat_history_image.save(pic_path)
                     pyautogui.keyDown('pageup',_pause=False)
                     Num+=1
@@ -3978,34 +4003,183 @@ class GroupSettings():
             chat_history_window.close()
             if len(chat_history)<number:
                 warn(message=f"你与{friend}的聊天记录不足{number},已为你导出全部的{len(chat_history)}条聊天记录",category=ChatHistoryNotEnough)
-                chat_history_json=json.dumps(chat_history,ensure_ascii=False,indent=4)
-            else:
-                chat_history_json=json.dumps(chat_history[:number],ensure_ascii=False,indent=4)
-            return chat_history_json
-        
+            if is_json:
+                chat_history=json.dumps(chat_history,ensure_ascii=False,indent=2)
+            return chat_history
+        temp=False
+        if capture_screen and not folder_path:
+            folder_name=f'{friend}聊天记录截图'
+            folder_path=os.path.join(os.getcwd(),folder_name)
+            os.makedirs(folder_path,exist_ok=True)
+            temp=True
         if capture_screen and folder_path:
-            folder_path=re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',folder_path)
             if not os.path.isdir(folder_path):
                 raise NotFolderError(r'给定路径不是文件夹!无法保存聊天记录截图,请重新选择文件夹！')
-        chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
-        chat_history_json=ByNum()
+        chat_history=ByNum()        
         ########################################################################
-        return chat_history_json
+        return chat_history
+
+    @staticmethod
+    def get_recent_chat_history(friend:str,recent:Literal['Today','Yesterday','Week','Month','Year'],
+        is_json:bool=True,capture_screen:bool=False,
+        folder_path:str=None,search_pages:int=5,wechat_path:str=None,
+        is_maximize:bool=True,close_wechat:bool=True)->list[tuple]|str:    
+        '''
+        该方法用来获取好友或群聊最近的的聊天记录,返回值为json
+        Args:
+            friend:好友或群聊备注或昵称
+            recent:获取最近聊天记录的时间节点,可选值为'Today','Yesterday','Week','Month','Year'分别获取当天,昨天,本周,本月,本年
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            capture_screen:聊天记录是否截屏,默认不截屏
+            folder_path:存放聊天记录截屏图片的文件夹路径
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法
+                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+        Returns:
+            chat_history:格式:[('发送人','时间','内容')]*number,number为实际聊天记录条数
+        '''
+        def ByDate():
+            chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
+            at_top=False
+            thismonth='/'+str(int(time.strftime('%m')))+'/'#当月
+            thisyear=str(int(time.strftime('%y')))+'/'#去年
+            lastmonth='/'+str(int(time.strftime('%m'))-1)+'/'#上个月
+            lastyear=str(int(time.strftime('%y'))-1)+'/'#去年
+            yesterday='Yesterday' if language=='英文' else '昨天' 
+            rec=chat_history_window.rectangle()
+            mouse.click(coords=(rec.right-10,rec.bottom-10))
+            pyautogui.press('End')
+            chat_history=[]
+            contentList=chat_history_window.child_window(**Lists.ChatHistoryList)
+            if not contentList.exists():    
+                chat_history_window.close()
+                if Systemsettings.is_empty_folder(folder_path) and temp:
+                    os.removedirs(folder_path)
+                raise NoChatHistoryError(f'你还未与{friend}聊天,无法获取聊天记录!')  
+            selected_items=[] #selected_items用来存放向上遍历过程中选中的聊天记录          
+            last_item=contentList.children(control_type='ListItem')[-1]
+            last_time=Tools.parse_chat_history(last_item)[1]
+            if '/' in last_time and recent in recent_modes[:3]:
+                print(f'最近的一条聊天记录时间为{last_time},本周无聊天记录!')
+            elif '/' in last_time and recent in recent_modes[:3] and thisyear not in last_time:
+                print(f'最近的一条聊天记录时间为{last_time},本年内无聊天记录!')
+            elif '/' in last_time and recent=='Month' and thisyear in last_time and thismonth not in last_time:
+                print(f'最近的一条聊天记录时间为{last_time},本月无聊天记录!')
+            else:
+                #点击最后一条聊天记录
+                rec=last_item.rectangle()
+                #注意不能直接click_input,要点击最右边，click_input默认点击中间
+                #如果是视频或者链接,直接就打开了，无法继续向上遍历
+                mouse.click(coords=(rec.right-30,rec.bottom-20))
+                if recent!='Yesterday':
+                    while True:     
+                        pyautogui.press('up',_pause=False,presses=2)
+                        selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                        selected_items.append(selected_item)
+                        parse_result=Tools.parse_chat_history(selected_item)
+                        if recent=='Year' and lastyear in parse_result[1]:
+                            break
+                        if recent=='Month' and lastmonth in parse_result[1]:
+                            break
+                        if recent=='Week' and '/' in parse_result[1]:
+                            break
+                        if recent=='Today' and ':' not in parse_result[1]:
+                            break
+                        if len(selected_items)>2 and selected_item==selected_items[-2]:
+                            at_top=True
+                            break
+                        chat_history.append(parse_result)
+                    if at_top:
+                        print(f'你与{friend}的聊天记录已包含全部,无法获取更多！')
+                if recent=='Yesterday':
+                    no_yesterday=False
+                    while True:
+                        pyautogui.press('up',_pause=False,presses=2)
+                        selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                        selected_items.append(selected_item)
+                        parse_result=Tools.parse_chat_history(selected_item)
+                        if yesterday in parse_result[1]:
+                            chat_history.append(parse_result)
+                            break
+                        if '/' in parse_result[1]:
+                            no_yesterday=True
+                            break
+                        if '/' not in parse_result[1] and ':' not in parse_result[1] and yesterday not in parse_result[1]:
+                            no_yesterday=True
+                            break
+                    if not no_yesterday:    
+                        while True:
+                            pyautogui.press('up',_pause=False,presses=2)
+                            selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                            selected_items.append(selected_item)
+                            parse_result=Tools.parse_chat_history(selected_item)
+                            chat_history.append(parse_result)
+                            if yesterday not in parse_result[1]:
+                                break
+                    if no_yesterday:
+                        print('昨天并无聊天记录,无法获取!')
+                pyautogui.press('END')
+                if capture_screen and chat_history:
+                    mouse.click(coords=(rec.right-30,rec.bottom-20))
+                    Num=1
+                    length=len(contentList.children(control_type='ListItem'))
+                    while length<len(selected_items):
+                        chat_history_image=chat_history_window.capture_as_image()
+                        if folder_path:
+                            pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
+                        else:
+                            pic_path=os.path.abspath(os.path.join(os.getcwd(),f'与{friend}的聊天记录{Num}.png'))
+                        chat_history_image.save(pic_path)
+                        pyautogui.keyDown('pageup',_pause=False)
+                        Num+=1
+                        length+=len(contentList.children(control_type='ListItem'))
+                    #退出循环后还要记得截最后一张图片
+                    chat_history_image=chat_history_window.capture_as_image()
+                    pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
+                    chat_history_image.save(pic_path)
+                    pyautogui.press('END')
+                    print(f'共保存聊天记录截图{Num}张')
+            chat_history_window.close()
+            if is_json:
+                chat_history=json.dumps(chat_history,ensure_ascii=False,indent=2)
+            if Systemsettings.is_empty_folder(folder_path) and temp:
+                os.removedirs(folder_path)
+            return chat_history
+        temp=False
+        recent_modes=['Today','Yesterday','Week','Month','Year']
+        if recent not in recent_modes:
+            raise WrongParameterError('recent取值错误!')
+        if capture_screen and not folder_path:
+            folder_name=f'{friend}聊天记录截图'
+            folder_path=os.path.join(os.getcwd(),folder_name)
+            os.makedirs(folder_path,exist_ok=True)
+            temp=True
+        if capture_screen and folder_path:
+            if not os.path.isdir(folder_path):
+                raise NotFolderError(r'给定路径不是文件夹!无法保存聊天记录截图,请重新选择文件夹！')
+        chat_history=ByDate()
+        return chat_history
+
 
 class Contacts():
+    '''针对微信通讯录的一些方法,主要用来导出通讯录联系人'''
     @staticmethod
-    def get_friends_names(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+    def get_friends_names(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
         '''
-        该方法用来获取通讯录中所有好友的名称与昵称。\n
-        结果以json字符串返回\n
+        该方法用来获取通讯录中所有好友的名称与昵称\n
+        结果以list[dict]或该类型的json字符串返回
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
-            json格式:[{"昵称":,"备注":}]*n,n为好友总数
+            contacts:[{"昵称":,"备注":}]*n,n为好友总数,每个dict是好友的信息,包含昵称与备注两个键
         '''
         def get_names(friends):
             names=[]
@@ -4032,7 +4206,7 @@ class Contacts():
             Names.extend(get_names(friends))
             contacts_settings_window.close()
             contacts=[{'昵称':name[1],'备注':name[0]}for name in Names]
-            contacts_json=json.dumps(contacts,ensure_ascii=False,indent=4)
+            contacts_json=json.dumps(contacts,ensure_ascii=False,indent=2)
             if not close_wechat:
                 Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
             return contacts_json
@@ -4048,29 +4222,32 @@ class Contacts():
                 Names.extend(get_names(friends[11-res:11]))
                 contacts_settings_window.close()
                 contacts=[{'昵称':name[1],'备注':name[0]}for name in Names]
-                contacts_json=json.dumps(contacts,ensure_ascii=False,indent=4)
+                if is_json:
+                    contacts=json.dumps(contacts,ensure_ascii=False,indent=2)
                 if not close_wechat:
                     Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
             else:
                 contacts_settings_window.close()
                 contacts=[{'昵称':name[1],'备注':name[0]}for name in Names]
-                contacts_json=json.dumps(contacts,ensure_ascii=False,indent=4)
+                if is_json:
+                    contacts=json.dumps(contacts,ensure_ascii=False,indent=2)
                 if not close_wechat:
                     Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
-            return contacts_json
+            return contacts
     @staticmethod
-    def get_friends_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+    def get_friends_info(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
         '''
         该函数用来获取通讯录中所有微信好友的基本信息(昵称,备注,微信号),速率约为1秒7-12个好友,注:不包含企业微信好友,\n
-        结果以json格式返回\n
+        结果以list[dict]或该类型的json字符串返回\n
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
-            json格式:[{"昵称":,"备注":,"微信号"}]*n,n为好友总数
+            contacts:[{"昵称":,"备注":,"微信号"}]*n,n为好友总数
         '''
         #获取右侧变化的好友信息面板内的信息
         def get_info():
@@ -4195,26 +4372,28 @@ class Contacts():
         #转为json格式
         records=zip(nicknames,remarks,wechatnumbers)
         contacts=[{'昵称':name[0],'备注':name[1],'微信号':name[2]} for name in records]
-        contacts_json=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=4)
+        if is_json:
+            contacts=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=2)
         ##############################################################
         pyautogui.press('Home')
         if close_wechat:
             main_window.close()
-        return contacts_json
+        return contacts
     
     @staticmethod
-    def get_friends_detail(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+    def get_friends_detail(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
         '''
-        该方法用来获取通讯录中所有微信好友的详细信息(昵称,备注,地区，标签,个性签名,共同群聊,微信号,来源),注:不包含企业微信好友,速率约为1秒4-6个好友\n
-        结果以json格式返回\n
+        该函數用来获取通讯录中所有微信好友的详细信息(昵称,备注,地区，标签,个性签名,共同群聊,微信号,来源),注:不包含企业微信好友,速率约为1秒4-6个好友\n
+        结果以list[dict]或该类型的json字符串返回
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
-            json格式:[{"昵称":,"备注":,'微信号':,'地区':,.....}]*n,n为好友总数
+            contacts:[{"昵称":,"备注":,'微信号':,'地区':,.....}]*n,n为好友总数
         '''
         #获取右侧变化的好友信息面板内的信息
         #从主窗口开始查找
@@ -4638,278 +4817,40 @@ class Contacts():
         #转为json格式
         records=zip(nicknames,wechatnumbers,regions,remarks,phonenumbers,tags,descrptions,permissions,common_group_nums,signatures,sources)
         contacts=[{'昵称':name[0],'微信号':name[1],'地区':name[2],'备注':name[3],'电话':name[4],'标签':name[5],'描述':name[6],'朋友权限':name[7],'共同群聊':name[8],'个性签名':name[9],'来源':name[10]} for name in records]
-        contacts_json=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=4)#ensure_ascii必须为False
+        if is_json:
+            contacts=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=2)#ensure_ascii必须为False
         ##############################################################
         pyautogui.press('Home')#回到起始位置,方便下次打开
         if close_wechat:
             main_window.close()
-        return contacts_json
-
-
-    @staticmethod
-    def get_wecom_friends_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
-        '''
-        该方法用来获取通讯录中所有未离职的企业微信好友的信息(昵称,企业名称)\n
-        结果以json格式返回\n
-        Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
-                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
-                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        Returns:
-            json格式:[{"昵称":,"备注":,'企业':,'职务'}]*n,n为企业微信好友总数
-        '''
-        def get_info():
-            post='无'
-            company='无'
-            global base_info_pane
-            global detail_info_pane
-            try:
-                try:
-                    base_info_pane=main_window.children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-                except IndexError:
-                    base_info_pane=main_window.children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-                try:
-                    detail_info_pane=main_window.children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-                except  IndexError:
-                    detail_info_pane=main_window.children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-                detail_info=detail_info_pane.descendants(control_type='Text')
-                detail_info=[element.window_text() for element in detail_info]
-                if language=='简体中文':
-                    if '企业信息' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='昵称：':
-                            remark=base_info[0]
-                            nickname=base_info[2]
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('企业')+1]
-                        if '职务' in detail_info:
-                            post=detail_info[detail_info.index('职务')+1]
-                        return nickname,company,remark,post
-                    else:
-                        return '非企业微信联系人'
-                    
-                if language=='英文':
-                    if 'Enterprise Information' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='Name: ':
-                            remark=base_info[0]
-                            nickname=base_info[2]
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('Company')+1]
-                        if 'Title' in detail_info:
-                            post=detail_info[detail_info.index('Title')+1]
-                        return nickname,company,remark,post
-                    else:
-                        return '非企业微信联系人'
-                    
-                if language=='繁体中文':
-                    if '企業資訊' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='暱稱：':
-                            remark=base_info[0]
-                            nickname=base_info[2]
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('企業')+1]
-                        if '職務' in detail_info:
-                            post=detail_info[detail_info.index('職務')+1]
-                        return nickname,company,remark,post
-                    else:
-                        return '非企业微信联系人'
-            except IndexError:
-                return '非企业微信联系人'
-
-                
-        main_window=Tools.open_contacts(wechat_path=wechat_path,is_maximize=is_maximize)
-        contacts=main_window.child_window(**SideBar.Contacts)
-        contacts.set_focus()
-        contacts.click_input()
-        contacts_list=main_window.child_window(**Main_window.ContactsList)
-        rec=contacts_list.rectangle()  
-        mouse.click(coords=(rec.right-5,rec.top+10))
-        pyautogui.press('End')
-        contacts_list=main_window.child_window(**Main_window.ContactsList)
-        last_wecom_friend_info=get_info()
-        while last_wecom_friend_info=='非企业微信联系人':
-            pyautogui.keyDown('up')
-            try:
-                detail_info=detail_info_pane.descendants(control_type='Text')
-                detail_info=[element.window_text() for element in detail_info]
-                if language=='简体中文':
-                    if '企业信息' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='昵称：':
-                            remark=base_info[0]
-                            nickname=base_info[2] 
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('企业')+1]
-                        if '职务' in detail_info:
-                            post=detail_info[detail_info.index('职务')+1] 
-                        last_wecom_friend_info=company 
-
-                if language=='英文':
-                    if 'Enterprise Information' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='Name: ':
-                            remark=base_info[0]
-                            nickname=base_info[2] 
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('Company')+1]
-                        if 'Title' in detail_info:
-                            post=detail_info[detail_info.index('Title')+1] 
-                        last_wecom_friend_info=company
-                
-                if language=='繁体中文':
-                    if '企業資訊' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='暱稱：':
-                            remark=base_info[0]
-                            nickname=base_info[2] 
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('企業')+1]
-                        if '職務' in detail_info:
-                            post=detail_info[detail_info.index('職務')+1] 
-                        last_wecom_friend_info=company 
-            except IndexError:
-                pass
-        
-        pyautogui.press('Home')
-        companies=[last_wecom_friend_info,'nothing']
-        nicknames=[]
-        remarks=[]
-        posts=[]
-        while companies[-1]!=companies[0]:
-            try:
-                detail_info=detail_info_pane.descendants(control_type='Text')
-                detail_info=[element.window_text() for element in detail_info]
-                if language=='简体中文':
-                    if '企业信息' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='昵称：':
-                            remark=base_info[0]
-                            nickname=base_info[2]
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('企业')+1]
-                        if '职务' in detail_info:
-                            post=detail_info[detail_info.index('职务')+1]
-                            posts.append(post)
-                        else:
-                            posts.append('无')
-                        nicknames.append(nickname)
-                        remarks.append(remark)
-                        companies.append(company)
-                    else:
-                        pass
-
-                if language=='英文':
-                    if 'Enterprise Information' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='Name: ':
-                            remark=base_info[0]
-                            nickname=base_info[2]
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('Company')+1]
-                        if 'Title' in detail_info:
-                            post=detail_info[detail_info.index('Title')+1]
-                            posts.append(post)
-                        else:
-                            posts.append('无')
-                        nicknames.append(nickname)
-                        remarks.append(remark)
-                        companies.append(company)
-                    else:
-                        pass
-                
-                if language=='繁体中文':
-                    if '企業資訊' in detail_info and '已离职' not in detail_info:
-                        base_info=base_info_pane.descendants(control_type='Text')
-                        base_info=[element.window_text() for element in base_info]
-                        # #如果有昵称选项,说明好友有备注
-                        if base_info[1]=='暱稱：':
-                            remark=base_info[0]
-                            nickname=base_info[2]
-                        else:
-                            nickname=base_info[0]
-                            remark=nickname
-                        company=detail_info[detail_info.index('企業')+1]
-                        if '職務' in detail_info:
-                            post=detail_info[detail_info.index('職務')+1]
-                            posts.append(post)
-                        else:
-                            posts.append('无')
-                        nicknames.append(nickname)
-                        remarks.append(remark)
-                        companies.append(company)
-                    else:
-                        pass
-
-            except IndexError:
-                pass
-            pyautogui.press('down',_pause=False,presses=1,interval=0.2)  
-        del(companies[0])
-        del(companies[0])
-        record=zip(nicknames,remarks,companies,posts)
-        contacts=[{'昵称':friend[0],'备注':friend[1],'企业':friend[2],'职务':friend[3]}for friend in record]
-        WeCom_json=json.dumps(contacts,ensure_ascii=False,indent=4)
-        if close_wechat:
-            main_window.close()
-        return WeCom_json
+        return contacts
 
     @staticmethod
-    def get_groups_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+    def get_groups_info(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
         '''
         该方法用来获取通讯录中所有群聊的信息(名称,成员数量)\n
-        结果以json格式返回\n
         Args:
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
-            json格式:[{"群聊名称":,"群聊人数":}]*n,n为群聊总数
+            groups_info:[{"群聊名称":,"群聊人数":}]*n,n为群聊总数,每个dict是群聊的信息,包含群名称与人数两个键
         '''
-        contacts_manage_window=Tools.open_contacts_manage(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
-        recent_group_chat=contacts_manage_window.child_window(**Buttons.RectentGroupButton)
-        Lists=contacts_manage_window.descendants(control_type='List',title='')
+        contacts_manage_pane=Tools.open_contacts_manage(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
+        recent_group_chat=contacts_manage_pane.child_window(**Buttons.RectentGroupButton)
+        Lists=contacts_manage_pane.descendants(control_type='List',title='')
         if len(Lists)==2:
             group_chatList=Lists[0]
         if len(Lists)==1:
             recent_group_chat.click_input()
-            group_chatList=contacts_manage_window.child_window(control_type='List',title='',found_index=0)
+            group_chatList=contacts_manage_pane.child_window(control_type='List',title='',found_index=0)
+        group_list=group_chatList.children(control_type='ListItem')
+        if not group_list:
+            contacts_manage_pane.close()
+            raise NoGroupsError
         first_group=group_chatList.children(control_type='ListItem')[0]
         first_group.click_input()
         pyautogui.press('End')
@@ -4919,81 +4860,597 @@ class Contacts():
         group_numbers=[]
         selected_item=first_group
         group_name=selected_item.descendants(control_type='Button')[0].window_text()
+        if group_name==last_group_name:
+            group_number=selected_item.descendants(control_type='Text')[1].window_text().replace('(','').replace(')','')
+            group_names.append(group_name)
+            group_numbers.append(group_number)
         while group_name!=last_group_name:
             group_name=selected_item.descendants(control_type='Button')[0].window_text()
             group_number=selected_item.descendants(control_type='Text')[1].window_text().replace('(','').replace(')','')
             group_names.append(group_name)
             group_numbers.append(group_number)
-            pyautogui.press("down",_pause=False,presses=1)
+            pyautogui.keyDown("down",_pause=False)
             selected_item=[item for item in group_chatList.children(control_type='ListItem') if item.is_selected()][0]
         record=zip(group_names,group_numbers)
         groups_info=[{"群聊名称":group[0],"群聊人数":group[1]}for group in record]
-        groups_info_json=json.dumps(groups_info,indent=4,ensure_ascii=False)
-        contacts_manage_window.close()
-        return groups_info_json
+        if is_json:
+            groups_info=json.dumps(groups_info,indent=2,ensure_ascii=False)
+        contacts_manage_pane.close()
+        return groups_info
 
     @staticmethod
-    def get_groupmembers_info(group_name:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+    def get_group_members_info(group_name:str,is_json:bool=False,search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法用来获取某个群聊中所有群成员的群昵称(名称,成员数量)\n
-        结果以列表的json格式返回\n
+        该方法用来获取某个群聊中所有群成员的数量，群昵称,昵称(如果已为好友则为给该好友的备注)\n
+        结果以字典或json格式返回,可通过is_json确定是否返回json对象,json对象便于进行IO读写操作。
         Args:
-            group_name\t:群聊名称或备注\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:群聊名称或备注
+            is_json:返回值类型是否为json,默认为False,此时返回值为字典。
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
-            json格式:{"群聊":,"人数":,'群成员昵称':list[str]}
-        '''
-        def find_group_in_contacts_list(group_name):
-            contacts_list=main_window.child_window(**Main_window.ContactsList)
-            rec=contacts_list.rectangle()  
-            mouse.click(coords=(rec.right-5,rec.top+10))
-            listitems=contacts_list.children(control_type='ListItem')
-            names=[item.window_text() for item in listitems]
-            while group_name not in names:
-                contacts_list=main_window.child_window(**Main_window.ContactsList)
-                listitems=contacts_list.children(control_type='ListItem')
-                names=[item.window_text() for item in listitems]
-                pyautogui.press('down',_pause=False)
-            group=listitems[names.index(group_name)]
-            group_button=group.descendants(control_type='Button',title=group_name)[0]
-            rec=group_button.rectangle()
-            mouse.click(coords=(int(rec.left+rec.right)//2,rec.top-12))
-        def get_info():
-            groupmember_names=[]
-            detail_info_pane=main_window.child_window(title_re=r'.*\(\d+\).*',control_type='Text').parent().parent().children()[1]
-            detail_info=detail_info_pane.descendants(control_type='ListItem')
-            groupmember_names=[element.window_text() for element in detail_info]
-            return groupmember_names
-        GroupSettings.save_group_to_contacts(group_name=group_name,state='open',wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,search_pages=search_pages)
-        main_window=Tools.open_contacts(wechat_path=wechat_path,is_maximize=is_maximize)
-        find_group_in_contacts_list(group_name=group_name)
-        groupmember_names=get_info()
-        GroupSettings.save_group_to_contacts(group_name=group_name,state='close',wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False)
+            info:{"群聊名称":str,"群聊人数":int,'群成员群昵称':list[str],'群成员昵称:list[str]'}
+        ''' 
+        group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
+        showAllButton=group_chat_settings_window.child_window(**Buttons.ShowAllButton)
+        chatList=group_chat_settings_window.child_window(**Lists.ChatList)
+        #Notfriends为新增和移出两个按钮在不同语言下的名称，其在聊天列表中也是ListItem，
+        #当群聊人数少没有查看更多按钮时直接遍历获取window_text
+        #会把这两个东西的名称也包含进去，因此需要筛选一下
+        Notfriends={ListItems.AddListItem['title'],ListItems.RemoveListItem['title']}
+        if showAllButton.exists():
+            #查看更多按钮点击后,新增和移出两个按钮会消失不见
+            showAllButton.click_input()
+            group_members=[listitem for listitem in chatList.children(control_type='ListItem')]
+            group_members_alias=[member.window_text() for member in group_members]
+            group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+        else:
+            group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.window_text() not in Notfriends]
+            group_members_alias=[member.window_text() for member in group_members]
+            group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+        info={'群聊':group_name,'人数':len(group_members_alias),'群成员群昵称':group_members_alias,'群成员昵称':group_members_nicknames}
         if close_wechat:
             main_window.close()
-        groupmember_json={'群聊':group_name,'人数':len(groupmember_names),'群成员群昵称':groupmember_names}
-        groupmember_json=json.dumps(groupmember_json,ensure_ascii=False,indent=4)
-        return groupmember_json
+        if is_json:
+            return json.dumps(info,ensure_ascii=False,indent=2)
+        return info
     
+    @staticmethod
+    def get_subscribed_oas(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->(list[dict]|str):
+        '''
+        该方法用来获取已关注的所有公众号的名称\n
+        结果以list[str]或该类型的json字符串返回
+        Args:
+            is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
+        Returns:
+            names:['微信支付','腾讯新闻',...]
+        '''
+        main_window=Tools.open_contacts(wechat_path=wechat_path,is_maximize=is_maximize)
+        ContactsLists=main_window.child_window(**Main_window.ContactsList)
+        rec=ContactsLists.rectangle()
+        mouse.click(coords=(rec.right-5,rec.top))
+        pyautogui.press('Home')
+        official_account=ContactsLists.child_window(**ListItems.OfficialAccountsListItem)
+        if not official_account.exists():
+            selected_item=ContactsLists.children(control_type='ListItem')[0]
+            selected_items=[selected_item]
+            while selected_item.window_text()!=ListItems.OfficialAccountsListItem['title']:
+                selected_item=[item for item in ContactsLists.children(control_type='ListItem') if item.is_selected()][0]
+                selected_items.append(selected_item)
+                #################################################
+                #没必要继续向下了，此时已经到头了，可以提前break了
+                #也就是当前selected_item在selected_items的倒数第二个时，就可以直接退出了，当然，必须得保证selected_items大于2
+                if len(selected_items)>2 and selected_item==selected_items[-2]:
+                    break
+                pyautogui.keyDown('down',_pause=False)
+            if not official_account.exists():
+                main_window.close()
+                raise NoSubScribedOAError
+        official_account.click_input()
+        parent=main_window.child_window(**Texts.OfficialAccountsText).parent().parent()
+        official_account_list=parent.children(control_type='Pane')[1].children(control_type='ListItem')
+        names=[ListItem.window_text() for ListItem in official_account_list]
+        if is_json:
+            names=json.dumps(names,ensure_ascii=False,indent=2)
+        if close_wechat:
+            main_window.close()
+        return names
+
+
+class Moments():
+    '''获取微信朋友圈内容的一些方法'''
+    @staticmethod
+    def dump_moments(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+        '''
+        该方法用来导出朋友圈所有内容(如果朋友圈数据较多,该函数会比较耗时)
+        Args:
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+            is_maximize:微信界面是否全屏，默认全屏
+            close_wechat:任务结束后是否关闭微信，默认关闭  
+        '''
+        #对列表内的字典去重，由于含有unhashable的list,无法使用set等方法
+        #因此这里使用json序列化后再去重
+        def deduplicate_dicts(list_of_dicts):
+            seen=set()
+            result=[]
+            for d in list_of_dicts:
+                #使用JSON序列化字典
+                serialized=json.dumps(d, sort_keys=True)
+                if serialized not in seen:
+                    seen.add(serialized)
+                    result.append(d)
+            return result
+        moments_window=Tools.open_moments(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
+        moments_list=moments_window.child_window(**Lists.MomentsList)
+        listitems=[listitem for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!='']
+        if not listitems:
+            raise NoMomentsError
+        scrollable=Tools.is_VerticalScrollable(moments_list)
+        rec=moments_list.rectangle()
+        x,y=rec.right-100,rec.bottom-100
+        scroll=moments_list.iface_scroll
+        moments=[]
+        if scrollable:
+            moments_list.iface_scroll.SetScrollPercent(verticalPercent=0.0,horizontalPercent=1.0)#调用SetScrollPercent方法向上滚动,verticalPercent=0.0表示直接将scrollbar一下子置于顶部
+            current_pos=scroll.CurrentVerticalScrollPercent#当前滚动百分比（0-1）
+            while current_pos<0.99:
+                current_pos=scroll.CurrentVerticalScrollPercent#当前滚动百分比（0-1）
+                mouse.scroll(coords=(x,y),wheel_dist=-1000)
+                if moments_list.children(control_type='ListItem')[-1].window_text()=='':
+                    break
+                moments.extend([Tools.parse_moments_content(listitem) for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!=''])
+        if not scrollable:
+            moments.extend([Tools.parse_moments_content(listitem) for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!=''])
+        moments=deduplicate_dicts(moments)
+        #筛选掉广告内容
+        moments=[dic for dic in moments if not '广告' in dic.get('文本内容') and dic.get('好友备注')!='']
+        moments=[dic for dic in moments if not 'Ad' in dic.get('文本内容') and dic.get('好友备注')!='']
+        moments=[dic for dic in moments if not '廣告' in dic.get('文本内容') and dic.get('好友备注')!='']
+        moments_window.close()
+        return moments
     
-class AutoReply():
+    @staticmethod
+    def dump_recent_moments(recent:Literal['Today','Yesterday','Week','Month','Year'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+        '''
+        该方法用来获取最近一段时间的朋友圈内容,主要包括今天,昨天,本周,本月,本年
+        Args:
+            recent:获取最近聊天记录的时间节点,可选值为'Today','Yesterday','Week','Month','Year'分别获取当天,昨天,本周,本月,本年
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法
+                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+            is_maximize:微信界面是否全屏，默认全屏
+            close_wechat:任务结束后是否关闭微信，默认关闭  
+        '''
+        #对列表内的字典去重，由于含有unhashable的list,无法使用set等方法
+        #因此这里使用json序列化后再去重
+        def deduplicate_dicts(list_of_dicts):
+            seen=set()
+            result=[]
+            for d in list_of_dicts:
+                #使用JSON序列化字典
+                serialized=json.dumps(d, sort_keys=True)
+                if serialized not in seen:
+                    seen.add(serialized)
+                    result.append(d)
+            return result
+        recent_modes=['Today','Yesterday','Week','Month','Year']
+        if recent not in recent_modes:
+            raise WrongParameterError('只能获取当天,昨天,本周的朋友圈所有内容!')
+        #注意,没有1 day ago 1 day ago就是昨天
+        days_ago='day(s) ago' if language=='英文' else '天前'#xx天前时间戳固定内容
+        month_sep='/' if language=='英文' else '月'
+        year_sep='-' if language=='英文' else '年' 
+        if language=='英文':
+            thismonth=str(int(time.strftime('%m')))+'/'
+        if language=='简体中文':
+            thismonth=str(int(time.strftime('%m')))+'月'
+        if language=='繁体中文':
+            thismonth=str(int(time.strftime('%m')))+' 月'
+        yesterday='Yesterday' if language=='英文' else '昨天'#昨天时间戳固定内容
+        moments_window=Tools.open_moments(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
+        moments_list=moments_window.child_window(**Lists.MomentsList)
+        listitems=[listitem for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!='']
+        if not listitems:
+            raise NoMomentsError
+        scrollable=Tools.is_VerticalScrollable(moments_list)
+        rec=moments_list.rectangle()
+        x,y=rec.right-100,rec.bottom-100
+        moments=[]
+        first_moment=[ListItem for ListItem in moments_list.children(control_type='ListItem') if ListItem.window_text()!=''][0]
+        first_moment_post_time=first_moment.descendants(**Buttons.CommentButton)[0].parent().children(control_type='Text')[0].window_text()
+        if year_sep in first_moment_post_time and recent=='Year':
+            print(f'最近的一条朋友圈发布时间为{first_moment_post_time},本年内朋友圈暂无内容!')
+        elif month_sep in first_moment_post_time and thismonth not in first_moment_post_time:
+            print(f'最近的一条朋友圈发布时间为{first_moment_post_time},本月内朋友圈暂无内容!')
+        elif month_sep in first_moment_post_time:
+            print(f'最近的一条朋友圈发布时间为{first_moment_post_time},本周内朋友圈暂无内容!')
+        elif recent=='Yesterday' and days_ago in first_moment_post_time:
+            print(f'最近的一条朋友圈发布时间为{first_moment_post_time},昨天朋友圈无内容!')
+        elif recent=='Today' and yesterday in first_moment_post_time or days_ago in first_moment_post_time:
+            print(f'最近的一条朋友圈发布时间为{first_moment_post_time},今天朋友圈暂无内容!')
+        else:
+            if scrollable:
+                moments_list.iface_scroll.SetScrollPercent(verticalPercent=0.0,horizontalPercent=1.0)#调用SetScrollPercent方法向上滚动,verticalPercent=0.0表示直接将scrollbar一下子置于顶部
+                while True:
+                    mouse.scroll(coords=(x,y),wheel_dist=-1000)
+                    ListItems=moments_list.children(control_type='ListItem')
+                    ListItems=[ListItem for ListItem in ListItems if ListItem.window_text()!='']
+                    post_time=ListItems[0].descendants(**Buttons.CommentButton)[0].parent().children(control_type='Text')[0].window_text()
+                    #往年时间戳是xxxx-xx-xx，时间戳里有-的都不是今年的
+                    if recent=='Year' and year_sep in post_time:
+                        break
+                    if recent=='Month':
+                        if month_sep in post_time and thismonth not in post_time:
+                            break
+                        if year_sep in post_time:
+                            break
+                    #只要没有/具体日期的都是本周内的
+                    if recent=='Week' and month_sep in post_time:
+                        break
+                    #在昨天之前，xx天前，\d+月/d+日之前的都是今天的
+                    #这三者中可能没有昨天,也就是今天完了直接是xx天前
+                    #也可能没有xx天前,也就是今天完了直接就是\d+月/\d+日
+                    #但是\d+月/\d+日还是一定存在的
+                    #比较优先级昨天>xx天前>\d+年/\d+月,但凡有一个存在立刻结束
+                    if recent=='Today':
+                        if yesterday in post_time:
+                            break
+                        if days_ago in post_time:
+                            break
+                        if month_sep in post_time:
+                            break
+                    if recent=='Yesterday':
+                        if days_ago in post_time:
+                            break
+                        if month_sep in post_time:
+                            break
+                    if moments_list.children(control_type='ListItem')[-1].window_text()=='':
+                        break
+                    moments.extend([Tools.parse_moments_content(listitem) for listitem in ListItems])
+                moments=deduplicate_dicts(moments)
+            if not scrollable:
+                moments.extend([Tools.parse_moments_content(listitem) for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!=''])
+                moments=deduplicate_dicts(moments)
+            if recent in recent_modes[:3]:
+                moments=[dic for dic in moments if month_sep not in dic.get('发布时间')]
+            if recent in recent_modes[3:]:
+                moments=[dic for dic in moments if year_sep not  in dic.get('发布时间')]
+            if recent=='Today':
+                moments=[dic for dic in moments if yesterday not in dic.get('发布时间')]
+            if recent=='Yesterday':
+                moments=[dic for dic in moments if yesterday in dic.get('发布时间')]
+            if recent=='Month':
+                moments=[dic for dic in moments if thismonth in dic.get('发布时间')]
+        #筛选掉广告内容
+        moments=[dic for dic in moments if not '广告' in dic.get('文本内容') and dic.get('好友备注')!='']
+        moments=[dic for dic in moments if not 'Ad' in dic.get('文本内容') and dic.get('好友备注')!='']
+        moments=[dic for dic in moments if not '廣告' in dic.get('文本内容') and dic.get('好友备注')!='']
+        moments_window.close()
+        return moments
 
     @staticmethod
-    def auto_answer_call(duration:str,broadcast_content:str,message:str=None,times:int=2,wechat_path:str=None,close_wechat:bool=True)->None:
+    def export_recent_moments_images(recent:Literal['Today','Yesterday','Week','Month']='Month',target_folder:str=None):
+        '''
+        该方法用来导出朋友圈缓存中所有图片
+        Args:
+            recent:获取最近朋友圈图片的时间节点,可选值为'Today','Yesterday','Week','Month'分别获取当天,昨天,本周,本月
+            target_folder:导出的图片保存的路径,需要是文件夹
+        '''
+        def is_modified_today(file_path):
+            """
+            判断文件是否在今天被修改过
+            """
+            mod_time=os.path.getmtime(file_path)
+            now=time.time()
+            today_start=now-(now%86400)#今天的0点时间戳
+            return mod_time>=today_start
+
+        def is_modified_yesterday(file_path):
+            """
+            判断文件是否在昨天被修改过
+            """
+            mod_time=os.path.getmtime(file_path)
+            now=time.time()
+            today_start=now-(now%86400) #今天的0点时间戳
+            yesterday_start=today_start-86400#昨天的0点时间戳
+            return yesterday_start<=mod_time <today_start
+
+        def is_modified_this_week(file_path):
+            """
+            判断文件是否在本周被修改过
+            """
+            mod_time=os.path.getmtime(file_path)
+            now=time.time()
+            today_struct=time.localtime(now)
+            weekday=today_struct.tm_wday # 周一=0, 周日=6
+            #周一的0点时间戳
+            monday_start=now-(weekday*86400)-(now%86400)
+            return mod_time>=monday_start
+        
+        def is_image(dat_file):
+            is_image=True
+            #微信常见的图片与视频格式文件头
+            with open(dat_file, 'rb') as f:
+                encrypted_data=f.read()
+            #先不解密看一下是不是mp4类型文件即是否按照mp4_headers内的header开头
+            for header in mp4_headers:
+                if encrypted_data.startswith(header):
+                    is_image=False
+                    break
+            return is_image
+        
+         #所有常见的mp4文件的header
+        mp4_headers = {
+            b'\x00\x00\x00\x1cftypisom',#实测,视频文件的话这个格式是最常见的
+            b'\x00\x00\x00\x1cftypmp42',#iPhone12pro以下的ios手机拍摄视频格式是这个
+            b'\x00\x00\x00\x1cftypmp41', 
+            b'\x00\x00\x00\x20ftypisom',
+            b'\x00\x00\x00\x20ftpypisom'
+            }
+        recent_modes=['Today','Yesterday','Week','Month']
+        if recent not in recent_modes:
+            raise WrongParameterError
+        timestamp=time.strftime("%Y-%m")
+        if not target_folder:
+            target_folder=os.path.join(os.getcwd(),f'{recent}朋友圈图片导出')
+            os.makedirs(target_folder,exist_ok=True)
+            print(f'未传入文件夹路径,所有导出的微信朋友圈图片将保存至 {target_folder}')
+        if not os.path.isdir(target_folder):
+            raise NotFolderError(f'给定路径不是文件夹,无法导入保存聊天文件')
+        temp=[]
+        sns_cache=os.path.join(Tools.where_SnsCache_folder(),timestamp)
+        with os.scandir(sns_cache) as entries:
+            for entry in entries:
+                mod_time=entry.stat().st_mtime
+                temp.append((entry.name, mod_time))
+        #按照修改时间对filenames排序
+        filenames=[file[0] for file in sorted(temp, key=lambda x: x[1], reverse=True)]
+        #_t结尾的是缩略图,无论是视频还是图片都不需要
+        #视频不全以_d结尾但以_d结尾的一定是视频，对于图片来说可以先初步筛选掉一部分   
+        files=[os.path.join(sns_cache,filename) for filename in filenames if not filename.endswith('_t') and not filename.endswith('_d')]
+        #使用filter继续进行筛选
+        images=list(filter(is_image,files))
+        if recent=='Today':
+            images=list(filter(is_modified_today,images))
+        if recent=='Yesterday':
+            images=list(filter(is_modified_yesterday,images))
+        if recent=='Week':
+            images=list(filter(is_modified_this_week,images))
+        if images:
+            folders=[target_folder]*len(images)
+            names=list(map(str, range(1,len(images))))
+            image_args_list=list(zip(images,folders,names))
+            #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
+            with ThreadPoolExecutor() as executor:
+                executor.map(lambda args: decrypt_image_dat(*args), image_args_list)
+        if not images:
+            print(f'{recent}朋友圈无图片可以导出')
+
+    @staticmethod
+    def export_recent_moments_videos(recent:Literal['Today','Yesterday','Week','Month']='Month',target_folder:str=None,transcode:bool=False):
+        '''
+        该方法用来导出最近一个月内朋友圈缓存内的视频,微信朋友圈缓存内的视频类型dat文件无加密\n
+        可以直接修改为.mp4,但需要注意的是,其编码格式为HEVC,如果有HEVC播放器可以直接播放\n
+        否则,需要转换编码方式,转为H264(更通用),转码用到pywechat内的ffmpeg.exe执行相应指令\n
+        视频长度等因素会影响执行时间,250个20s以内视频,耗时15min左右
+        Args:
+            recent:获取最近朋友圈视频的时间节点,可选值为'Today','Yesterday','Week','Month'分别获取当天,昨天,本周,本月
+            target_folder:导出的视频保存的路径,需要是文件夹
+            transcode:是否转码,转码后可以直接播放,默认为False
+        '''
+        def is_modified_today(file_path):
+            """
+            判断文件是否在今天被修改过
+            """
+            mod_time=os.path.getmtime(file_path)
+            now=time.time()
+            today_start=now-(now%86400)#今天的0点时间戳
+            return mod_time>=today_start
+
+        def is_modified_yesterday(file_path):
+            """
+            判断文件是否在昨天被修改过
+            """
+            mod_time=os.path.getmtime(file_path)
+            now=time.time()
+            today_start=now-(now%86400)#今天的0点时间戳
+            yesterday_start=today_start-86400#昨天的0点时间戳
+            return yesterday_start<=mod_time<today_start
+
+        def is_modified_this_week(file_path):
+            """
+            判断文件是否在本周被修改过
+            """
+            mod_time=os.path.getmtime(file_path)
+            now=time.time()
+            today_struct=time.localtime(now)
+            weekday=today_struct.tm_wday # 周一=0, 周日=6
+            #周一的0点时间戳
+            monday_start=now-(weekday*86400)-(now%86400)
+            return mod_time>=monday_start
+        
+        def is_video(dat_file):
+            is_video=False
+            #微信常见的图片与视频格式文件头
+            with open(dat_file, 'rb') as f:
+                encrypted_data = f.read()
+            #先不解密看一下是不是mp4类型文件即是否按照所给的header开头
+            for header in mp4_headers:
+                if encrypted_data.startswith(header):
+                    is_video=True
+                    break
+            return is_video
+        #所有常见的mp4文件的header
+        mp4_headers = {
+            b'\x00\x00\x00\x1cftypisom',#实测,视频文件的话这个格式是最常见的
+            b'\x00\x00\x00\x1cftypmp42',#iPhone12pro以下的ios手机拍摄视频格式是这个
+            b'\x00\x00\x00\x1cftypmp41', 
+            b'\x00\x00\x00\x20ftypisom',
+            b'\x00\x00\x00\x20ftpypisom'
+            }
+        recent_modes=['Today','Yesterday','Week','Month']
+        if recent not in recent_modes:
+            raise WrongParameterError
+        timestamp=time.strftime("%Y-%m")
+        if not target_folder:
+            target_folder=os.path.join(os.getcwd(),f'{recent}朋友圈视频导出')
+            os.makedirs(target_folder,exist_ok=True)
+            print(f'未传入文件夹路径,所有导出的微信朋友圈视频将保存至 {target_folder}')
+        if not os.path.isdir(target_folder):
+            raise NotFolderError(f'给定路径不是文件夹,无法导入保存聊天文件')
+        temp=[]
+        sns_cache=os.path.join(Tools.where_SnsCache_folder(),timestamp)
+        with os.scandir(sns_cache) as entries:
+            for entry in entries:
+                mod_time=entry.stat().st_mtime
+                temp.append((entry.name, mod_time))
+        #按照修改时间对filenames排序
+        filenames=[file[0] for file in sorted(temp, key=lambda x: x[1], reverse=True)]
+        #_t结尾的是缩略图,无论是视频还是图片都不需要
+        files=[os.path.join(sns_cache,filename) for filename in filenames if not filename.endswith('_t')]
+        videos=list(filter(is_video,files))
+        if recent=='Today':
+            videos=list(filter(is_modified_today,videos))
+        if recent=='Yesterday':
+            videos=list(filter(is_modified_yesterday,videos))
+        if recent=='Week':
+            videos=list(filter(is_modified_this_week,videos))
+        if videos:
+            transcodes=[transcode]*len(videos)
+            folders=[target_folder]*len(videos)
+            names=list(map(str, range(1,len(videos))))
+            video_args_list=list(zip(videos,folders,names,transcodes))
+            #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
+            with ThreadPoolExecutor() as executor:
+                executor.map(lambda args: dat_to_video(*args), video_args_list)
+        if not videos:
+            print(f'{recent}朋友圈没有视频可导出')
+
+    @staticmethod
+    def export_moments_cache(year:str=time.strftime('%Y'),month:str=None,target_folder:str=None):
+        '''
+        该函数用来快速导出微信朋友圈内的图片与视频缓存,注意,考虑到时间效率,视频默认不转码\n
+        但仍以mp4格式保存,如需要播放可以使用utils内的transcode函数来转换编码格式
+        Args:
+            year:年份,除非手动删除否则聊天文件持续保存,格式:YYYY:2025,2024
+            month:月份,微信朋友圈内的文件是按照xxxx年-xx月分批存储的格式:XX:06
+            target_folder:导出的图片与视频保存的位置,需要是文件夹
+        '''
+        def is_video(dat_file):
+            is_video=False
+            #微信常见的图片与视频格式文件头
+            with open(dat_file, 'rb') as f:
+                encrypted_data = f.read()
+            #先不解密看一下是不是mp4类型文件即是否按照所给的header开头
+            for header in mp4_headers:
+                if encrypted_data.startswith(header):
+                    is_video=True
+                    break
+            return is_video
+
+        def is_image(dat_file):
+            is_image=True
+            #微信常见的图片与视频格式文件头
+            with open(dat_file, 'rb') as f:
+                encrypted_data = f.read()
+            #先不解密看一下是不是mp4类型文件即是否按照所给的header开头
+            for header in mp4_headers:
+                if encrypted_data.startswith(header):
+                    is_image=False
+                    break
+            return is_image
+
+        def classfiy(folder):
+            files=[]
+            with os.scandir(os.path.join(sns_cache,folder)) as entries:
+                for entry in entries:
+                    mod_time=entry.stat().st_mtime
+                    files.append((entry.name, mod_time))
+            #按照修改时间对filenames排序
+            files=[os.path.join(sns_cache,folder,file[0]) for file in sorted(files, key=lambda x: x[1], reverse=True)]
+            videos=list(filter(is_video,files))
+            images=list(filter(is_image,files))
+            return images,videos
+        
+        folder_name=f'{year}-{month}微信朋友圈缓存导出' if month else f'{year}微信朋友圈图片视频导出' 
+        if not target_folder:
+            os.makedirs(name=folder_name,exist_ok=True)
+            target_folder=os.path.join(os.getcwd(),folder_name)
+            print(f'未传入文件夹路径,所有导出的朋友圈图片与视频将保存至 {target_folder}')
+        if not os.path.isdir(target_folder):
+            raise NotFolderError(f'给定路径不是文件夹,无法导入保存聊天文件')
+        #所有常见的mp4文件的header
+        mp4_headers = {
+            b'\x00\x00\x00\x1cftypisom',#实测,视频文件的话这个格式是最常见的
+            b'\x00\x00\x00\x1cftypmp42',#iPhone12pro以下的ios手机拍摄视频格式是这个
+            b'\x00\x00\x00\x1cftypmp41', 
+            b'\x00\x00\x00\x20ftypisom',
+            b'\x00\x00\x00\x20ftpypisom'
+            }
+        videos_count=0
+        images_count=0
+        videos_folder=os.path.join(target_folder,'朋友圈视频')
+        images_folder=os.path.join(target_folder,'朋友圈图片')
+        os.makedirs(videos_folder,exist_ok=True)
+        os.makedirs(images_folder,exist_ok=True)
+        videos_exported_folder=videos_folder
+        images_exported_folder=images_folder
+        sns_cache=Tools.where_SnsCache_folder()
+        folders=os.listdir(sns_cache)
+        #先找到所有以年份开头的文件夹,并将得到的文件夹名字与其根目录chatfile_folder这个路径join
+        filtered_folders=[folder for folder in folders if folder.startswith(year)]
+        if month:
+            #如果有月份传入，那么在上一步基础上根据月份筛选
+            filtered_folders=[folder for folder in filtered_folders if folder.endswith(month)]
+        for folder in filtered_folders:#遍历筛选后的每个文件夹
+            images,videos=classfiy(folder)
+            if videos:
+                videos_count+=len(videos)
+                if not month:
+                    videos_exported_folder=os.path.join(videos_folder,folder)
+                    os.makedirs(videos_exported_folder,exist_ok=True)
+                folders=[videos_exported_folder]*len(videos)
+                names=list(map(str, range(1,len(videos)+1)))
+                transcodes=[False]*len(videos)
+                videos_args_list=list(zip(videos,folders,names,transcodes))
+                with ThreadPoolExecutor() as executor:
+                    executor.map(lambda args: dat_to_video(*args), videos_args_list)
+            if images:
+                images_count+=len(images)
+                if not month:
+                    images_exported_folder=os.path.join(images_folder,folder)
+                    os.makedirs(images_exported_folder,exist_ok=True)
+                folders=[images_exported_folder]*len(images)
+                names=list(map(str, range(1,len(images)+1)))
+                image_args_list=list(zip(images,folders,names))
+                with ThreadPoolExecutor() as executor:
+                    executor.map(lambda args: decrypt_image_dat(*args), image_args_list)
+        print(f'已导出{videos_count+images_count}个文件至:{target_folder},图片:{images_count}张，未转码视频:{videos_count}个')
+
+class AutoReply():
+    '''用来自动回复的一些方法,主要针对个人,群聊,会话列表内的好友'''
+    @staticmethod
+    def auto_answer_call(duration:str,broadcast_content:str,message:str=None,times:int=1,wechat_path:str=None,close_wechat:bool=True)->None:
         '''
         该方法用来自动接听微信电话\n
         注意！一旦开启自动接听功能后,在设定时间内,你的所有视频语音电话都将优先被PC微信接听,并按照设定的播报与留言内容进行播报和留言。\n
         Args:
-            duration:\t自动接听功能持续时长,格式:s,min,h分别对应秒,分钟,小时,例:duration='1.5h'持续1.5小时\n
-            broadcast_content:\twindowsAPI语音播报内容\n
-            message:\t语音播报结束挂断后,给呼叫者发送的留言\n
-            times:\t语音播报重复次数\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            duration:自动接听功能持续时长,格式:s,min,h分别对应秒,分钟,小时,例:duration='1.5h'持续1.5小时
+            broadcast_content:windowsAPI语音播报内容
+            message:语音播报结束挂断后,给呼叫者发送的留言
+            times:语音播报重复次数
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         def judge_call(call_interface):
             window_text=call_interface.child_window(found_index=1,control_type='Button').texts()[0]
@@ -5020,100 +5477,97 @@ class AutoReply():
         if not duration:
             raise TimeNotCorrectError
         Systemsettings.open_listening_mode(full_volume=True)
-        start_time=time.time()
         desktop=Desktop(**Independent_window.Desktop)
-        while True:
-            if time.time()-start_time<duration:
-                call_interface1=desktop.window(**Independent_window.OldIncomingCallWindow)
-                call_interface2=desktop.window(**Independent_window.NewIncomingCallWindow)
-                if call_interface1.exists():
-                    flag,caller_name=judge_call(call_interface1)
-                    caller_names.append(caller_name)
-                    flags.append(flag)
-                    call_window=call_interface1.child_window(found_index=3,title="",control_type='Pane')
-                    accept=call_window.children(**Buttons.AcceptButton)[0]
-                    if flag=="语音通话":
-                        time.sleep(1)
-                        accept.click_input()
-                        time.sleep(1)
-                        accept_call_window=desktop.window(**Independent_window.OldVoiceCallWindow)
-                        if accept_call_window.exists():
-                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                            while not duration_time.exists():
-                                time.sleep(1)
-                                duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                            Systemsettings.speaker(times=times,text=broadcast_content)
-                            answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
-                            if answering_window.exists():
-                                reject=answering_window.child_window(**Buttons.HangUpButton)
-                                reject.click_input()
-                                if message:
-                                    Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,close_wechat=close_wechat,message=message)     
-                    else:
-                        time.sleep(1)
-                        accept.click_input()
-                        time.sleep(1)
-                        accept_call_window=desktop.window(**Independent_window.OldVideoCallWindow)
-                        accept_call_window.click_input()
+        end_timestamp=time.time()+duration#根据秒数计算截止时间
+        while time.time()<end_timestamp:
+            call_interface1=desktop.window(**Independent_window.OldIncomingCallWindow)
+            call_interface2=desktop.window(**Independent_window.NewIncomingCallWindow)
+            if call_interface1.exists():
+                flag,caller_name=judge_call(call_interface1)
+                caller_names.append(caller_name)
+                flags.append(flag)
+                call_window=call_interface1.child_window(found_index=3,title="",control_type='Pane')
+                accept=call_window.children(**Buttons.AcceptButton)[0]
+                if flag=="语音通话":
+                    time.sleep(1)
+                    accept.click_input()
+                    time.sleep(1)
+                    accept_call_window=desktop.window(**Independent_window.OldVoiceCallWindow)
+                    if accept_call_window.exists():
                         duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
                         while not duration_time.exists():
-                                time.sleep(1)
-                                accept_call_window.click_input()
-                                duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                        Systemsettings.speaker(times=times,text=broadcast_content)
-                        rec=accept_call_window.rectangle()
-                        mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
-                        reject=accept_call_window.child_window(**Buttons.HangUpButton)
-                        reject.click_input()
-                        if message:
-                            Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
-                        
-                elif call_interface2.exists():
-                    call_window=call_interface2.child_window(found_index=4,title="",control_type='Pane')
-                    accept=call_window.children(**Buttons.AcceptButton)[0]
-                    flag,caller_name=judge_call(call_interface2)
-                    caller_names.append(caller_name)
-                    flags.append(flag)
-                    if flag=="语音通话":
-                        time.sleep(1)
-                        accept.click_input()
-                        time.sleep(1)
-                        accept_call_window=desktop.window(**Independent_window.NewVoiceCallWindow)
-                        if accept_call_window.exists():
-                            answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
+                            time.sleep(1)
                             duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                            while not duration_time.exists():
-                                time.sleep(1)
-                                duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                            Systemsettings.speaker(times=times,text=broadcast_content)
-                            if answering_window.exists():
-                                reject=answering_window.children(**Buttons.HangUpButton)[0]
-                                reject.click_input()
-                                if message:
-                                    Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
-                    else:
-                        time.sleep(1)
-                        accept.click_input()
-                        time.sleep(1)
-                        accept_call_window=desktop.window(**Independent_window.NewVideoCallWindow)
-                        accept_call_window.click_input()
-                        duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                        while not duration_time.exists():
-                                time.sleep(1)
-                                accept_call_window.click_input()
-                                duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
                         Systemsettings.speaker(times=times,text=broadcast_content)
-                        rec=accept_call_window.rectangle()
-                        mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
-                        reject=accept_call_window.child_window(**Buttons.HangUpButton)
-                        reject.click_input()
-                        if message:
-                            Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
-                        
+                        answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
+                        if answering_window.exists():
+                            reject=answering_window.child_window(**Buttons.HangUpButton)
+                            reject.click_input()
+                            if message:
+                                Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,close_wechat=close_wechat,message=message)     
                 else:
-                    call_interface1=call_interface2=None
+                    time.sleep(1)
+                    accept.click_input()
+                    time.sleep(1)
+                    accept_call_window=desktop.window(**Independent_window.OldVideoCallWindow)
+                    accept_call_window.click_input()
+                    duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                    while not duration_time.exists():
+                            time.sleep(1)
+                            accept_call_window.click_input()
+                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                    Systemsettings.speaker(times=times,text=broadcast_content)
+                    rec=accept_call_window.rectangle()
+                    mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
+                    reject=accept_call_window.child_window(**Buttons.HangUpButton)
+                    reject.click_input()
+                    if message:
+                        Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
+                    
+            elif call_interface2.exists():
+                call_window=call_interface2.child_window(found_index=4,title="",control_type='Pane')
+                accept=call_window.children(**Buttons.AcceptButton)[0]
+                flag,caller_name=judge_call(call_interface2)
+                caller_names.append(caller_name)
+                flags.append(flag)
+                if flag=="语音通话":
+                    time.sleep(1)
+                    accept.click_input()
+                    time.sleep(1)
+                    accept_call_window=desktop.window(**Independent_window.NewVoiceCallWindow)
+                    if accept_call_window.exists():
+                        answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
+                        duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                        while not duration_time.exists():
+                            time.sleep(1)
+                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                        Systemsettings.speaker(times=times,text=broadcast_content)
+                        if answering_window.exists():
+                            reject=answering_window.children(**Buttons.HangUpButton)[0]
+                            reject.click_input()
+                            if message:
+                                Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
+                else:
+                    time.sleep(1)
+                    accept.click_input()
+                    time.sleep(1)
+                    accept_call_window=desktop.window(**Independent_window.NewVideoCallWindow)
+                    accept_call_window.click_input()
+                    duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                    while not duration_time.exists():
+                            time.sleep(1)
+                            accept_call_window.click_input()
+                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                    Systemsettings.speaker(times=times,text=broadcast_content)
+                    rec=accept_call_window.rectangle()
+                    mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
+                    reject=accept_call_window.child_window(**Buttons.HangUpButton)
+                    reject.click_input()
+                    if message:
+                        Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
+                    
             else:
-                break
+                call_interface1=call_interface2=None
         Systemsettings.close_listening_mode()
         if caller_names:
             print(f'自动接听微信电话结束,在{unchanged_duration}内内共计接听{len(caller_names)}个电话\n接听对象:{caller_names}\n电话类型{flags}')
@@ -5121,24 +5575,24 @@ class AutoReply():
             print(f'未接听到任何微信视频或语音电话')
 
     @staticmethod
-    def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max_pages:int=5,never_reply:list=[],scroll_delay:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->None:
+    def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max_pages:int=5,never_reply:list=[],scroll_delay:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
         该方法用来遍历会话列表查找新消息自动回复,最大回复数量=max_pages*(8~10)\n
         如果你不想回复某些好友,你可以临时将其设为消息免打扰,或传入\n
-        一个包含不回复好友或群聊的昵称列表never_reply\n
+        一个包含不回复好友或群聊的昵称列表never_reply
         Args:
-            content:\t自动回复内容\n
-            duration:\t自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
-            dontReplytoGroup:\t不回复群聊(即使有新消息也不回复)\n
-            max_pages:\t遍历会话列表页数,一页为8~10人,设定持续时间后,将持续在max_pages内循环遍历查找是否有新消息\n
-            never_reply:\t在never_reply列表中的好友即使有新消息时也不会回复\n
-            scroll_delay:\t滚动遍历max_pages页会话列表后暂停秒数,如果你的max_pages很大,且持续时间长,scroll_delay还为0的话,那么一直滚动遍历有可能被微信检测到自动退出登录\n
-                该参数只在会话列表可以滚动的情况下生效\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
-                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
-                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            content:自动回复内容
+            duration:自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时
+            dontReplytoGroup:不回复群聊(即使有新消息也不回复)
+            max_pages:遍历会话列表页数,一页为8~10人,设定持续时间后,将持续在max_pages内循环遍历查找是否有新消息
+            never_reply:在never_reply列表中的好友即使有新消息时也不会回复
+            scroll_delay:滚动遍历max_pages页会话列表后暂停秒数,如果你的max_pages很大,且持续时间长,scroll_delay还为0的话,那么一直滚动遍历有可能被微信检测到自动退出登录
+                该参数只在会话列表可以滚动的情况下生效
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法
+                尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要
+                传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         if language=='简体中文':
             taboo_list=['微信团队','微信支付','微信运动','订阅号','腾讯新闻','服务通知','微信游戏']
@@ -5163,7 +5617,6 @@ class AutoReply():
             if newMessagefriends:
                 #会话列表中的好友具有Text属性，Text内容为备注名，通过这个按钮的名称获取好友名字
                 names=[friend.descendants(control_type='Text')[0].window_text() for friend in newMessagefriends]
-
                 return names
             return []
 
@@ -5185,7 +5638,6 @@ class AutoReply():
                 if who==current_chat.window_text() and latest_message!=initial_last_message:#不等于刚打开页面时的那条消息且发送者是对方
                     current_chat.click_input()
                     pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
                     pyautogui.hotkey('alt','s',_pause=False)
                     responsed_friend.add(current_chat.window_text())
                     if scorllable:
@@ -5196,7 +5648,6 @@ class AutoReply():
                     if not dontReplytoGroup:
                         current_chat.click_input()
                         pyautogui.hotkey('ctrl','v',_pause=False)
-                        time.sleep(delay)
                         pyautogui.hotkey('alt','s',_pause=False)
                         responsed_friend.add(current_chat.window_text())
                         responsed_groups.add(current_chat.window_text())
@@ -5224,14 +5675,12 @@ class AutoReply():
                         current_chat=main_window.child_window(**Main_window.CurrentChatWindow)
                         current_chat.click_input()
                         pyautogui.hotkey('ctrl','v',_pause=False)
-                        time.sleep(delay)
                         pyautogui.hotkey('alt','s',_pause=False)
                         responsed_friend.add(name) 
                     if type=='群聊' and not dontReplytoGroup:
                             current_chat=main_window.child_window(**Main_window.CurrentChatWindow)
                             current_chat.click_input()
                             pyautogui.hotkey('ctrl','v',_pause=False)
-                            time.sleep(delay)
                             pyautogui.hotkey('alt','s',_pause=False)
                             responsed_friend.add(name)
                             responsed_groups.add(name)
@@ -5253,9 +5702,9 @@ class AutoReply():
             mouse.click(coords=(x,y))#点击右上方激活滑块
             pyautogui.press('Home')#按下Home健确保从顶部开始
         search_pages=1
-        start_time=time.time()
+        end_timestamp=time.time()+duration#根据秒数计算截止时间
         chatsButton=main_window.child_window(**SideBar.Chats)
-        while time.time()-start_time<=duration:
+        while time.time()<end_timestamp:
             if chatsButton.legacy_properties().get('Value'):#如果左侧的聊天按钮式红色的就遍历,否则原地等待
                 if scorllable:
                     for _ in range(max_pages+1):
@@ -5282,22 +5731,22 @@ class AutoReply():
             main_window.close()
 
     @staticmethod
-    def auto_reply_to_friend(friend:str,duration:str,content:str,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->(str|None):
+    def auto_reply_to_friend(friend:str,duration:str,content:str,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->(str|None):
         '''
-        该方法用来实现类似QQ的自动回复某个好友的消息\n
+        该方法用来实现类似QQ的自动回复某个好友的消息
         Args:
-            friend:\t好友或群聊备注\n
-            duration:\t自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时\n
-            content:\t指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试。\n
-            save_chat_history:\t是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
-            capture_screen:\t是否保存聊天记录截图,默认值为False不保存。\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            folder_path:\t存放聊天记录截屏图片的文件夹路径\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注
+            duration:自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时
+            content:指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试
+            save_chat_history:是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
+            capture_screen:是否保存聊天记录截图,默认值为False不保存
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            folder_path:存放聊天记录截屏图片的文件夹路径
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
             chat_history:json字符串,格式为:[{'发送人','时间','内容'}],当save_chat_history设置为True时
         '''
@@ -5326,22 +5775,18 @@ class AutoReply():
         Systemsettings.copy_text_to_windowsclipboard(content)#复制回复内容到剪贴板
         Systemsettings.open_listening_mode(full_volume=False)#开启监听模式,此时电脑只要不断电不会息屏 
         count=0
-        start_time=time.time()  
-        while True:
-            if time.time()-start_time<duration:
-                newMessage,who=Tools.pull_latest_message(chatList)
-                #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
-                #并且最后一条消息的发送者是好友时自动回复
-                #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
-                #刚打开聊天界面时的最后一条消息的话那就一直不回复了
-                if newMessage!=initial_last_message and who==friend:
-                    edit_area.click_input()
-                    pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
-                    pyautogui.hotkey('alt','s',_pause=False)
-                    count+=1
-            else:
-                break
+        end_timestamp=time.time()+duration#根据秒数计算截止时间
+        while time.time()<end_timestamp:
+            newMessage,who=Tools.pull_latest_message(chatList)
+            #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
+            #并且最后一条消息的发送者是好友时自动回复
+            #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
+            #刚打开聊天界面时的最后一条消息的话那就一直不回复了
+            if newMessage!=initial_last_message and who==friend:
+                edit_area.click_input()
+                pyautogui.hotkey('ctrl','v',_pause=False)
+                pyautogui.hotkey('alt','s',_pause=False)
+                count+=1
         if count:
             if save_chat_history:
                 chat_history=get_chat_history(friend=friend,number=2*count,capture_screen=capture_screen,folder_path=folder_path,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)  
@@ -5351,26 +5796,26 @@ class AutoReply():
             main_window.close()
 
     @staticmethod
-    def AI_auto_reply_to_friend(friend:str,duration:str,AI_engine,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4):
+    def AI_auto_reply_to_friend(friend:str,duration:str,AI_engine,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
         '''
-        该方法 用来接入AI大模型自动回复好友消息\n
+        该方法 用来接入AI大模型自动回复好友消息
         Args:
-            friend:\t好友或群聊备注\n
-            duration:\t自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
-            Ai_engine:\t调用的AI大模型API函数,去各个大模型官网找就可以\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            friend:好友或群聊备注
+            duration:自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时
+            Ai_engine:调用的AI大模型API函数,去各个大模型官网找就可以
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         if save_chat_history and capture_screen and folder_path:#需要保存自动回复后的聊天记录截图时，可以传入一个自定义文件夹路径，不然保存在运行该函数的代码所在文件夹下
             #当给定的文件夹路径下的内容不是一个文件夹时
             if not os.path.isdir(folder_path):#
                 raise NotFolderError(r'给定路径不是文件夹!无法保存聊天记录截图,请重新选择文件夹！')
         duration=match_duration(duration)#将's','min','h'转换为秒
-        if not duration:#有SB不按照指定的时间格式输入,需要提前中断退出
+        if not duration:#不按照指定的时间格式输入,需要提前中断退出
             raise TimeNotCorrectError
         #打开好友的对话框,返回值为编辑消息框和主界面
         edit_area,main_window=Tools.open_dialog_window(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
@@ -5391,32 +5836,27 @@ class AutoReply():
         initial_last_message=Tools.pull_latest_message(chatList)[0]#刚打开聊天界面时的最后一条消息的listitem   
         Systemsettings.open_listening_mode(full_volume=False)#开启监听模式,此时电脑只要不断电不会息屏 
         count=0
-        start_time=time.time()  
-        while True:
-            if time.time()-start_time<duration:
-                newMessage,who=Tools.pull_latest_message(chatList)
-                #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
-                #并且最后一条消息的发送者是好友时自动回复
-                #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
-                #刚打开聊天界面时的最后一条消息的话那就一直不回复了
-                if type=='好友':
-                    if newMessage!=initial_last_message and who==friend:
-                        edit_area.click_input()
-                        Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
-                        pyautogui.hotkey('ctrl','v',_pause=False)
-                        time.sleep(delay)
-                        pyautogui.hotkey('alt','s',_pause=False)
-                        count+=1  
-                if type=='群聊':
-                    if newMessage!=initial_last_message and who!=myname:
-                        edit_area.click_input()
-                        Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
-                        pyautogui.hotkey('ctrl','v',_pause=False)
-                        time.sleep(delay)
-                        pyautogui.hotkey('alt','s',_pause=False)
-                        count+=1
-            else:
-                break
+        end_timestamp=time.time()+duration#根据秒数计算截止时间
+        while time.time()<end_timestamp:
+            newMessage,who=Tools.pull_latest_message(chatList)
+            #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
+            #并且最后一条消息的发送者是好友时自动回复
+            #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
+            #刚打开聊天界面时的最后一条消息的话那就一直不回复了
+            if type=='好友':
+                if newMessage!=initial_last_message and who==friend:
+                    edit_area.click_input()
+                    Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
+                    pyautogui.hotkey('ctrl','v',_pause=False)
+                    pyautogui.hotkey('alt','s',_pause=False)
+                    count+=1  
+            if type=='群聊':
+                if newMessage!=initial_last_message and who!=myname:
+                    edit_area.click_input()
+                    Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
+                    pyautogui.hotkey('ctrl','v',_pause=False)
+                    pyautogui.hotkey('alt','s',_pause=False)
+                    count+=1
         if count:
             if save_chat_history:
                 chat_history=get_chat_history(friend=friend,number=2*count,capture_screen=capture_screen,folder_path=folder_path,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)  
@@ -5424,27 +5864,26 @@ class AutoReply():
         Systemsettings.close_listening_mode()
         if close_wechat:
             main_window.close()
-
     @staticmethod
-    def auto_reply_to_group(group_name:str,duration:str,content:str,at_only:bool=True,maxReply:int=3,at_others:bool=True,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->(str|None):
+    def auto_reply_to_group(group_name:str,duration:str,content:str,at_only:bool=True,maxReply:int=3,at_others:bool=True,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->(str|None):
         '''
-        该方法用来实现自动回复某个群聊的消息,默认只有我在群聊内被别人@时才回复他,回复时默认@别人\n
+        该方法用来实现自动回复某个群聊的消息,默认只有我在群聊内被别人@时才回复他,回复时默认@别人
         Args:
-            group_name:\t好友或群聊备注\n
-            duration:\t自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时\n
-            content:\t指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试。\n
-            at_only:\t是否只在我被@时才自动回复,默认为True,设置为False的话,只要有新消息就回复\n
-            at_others:\t回复的时候,要不要@别人,默认为True\n
-            maxReply:\t最多同时回复群内连续发送的n条新消息,默认为3,不用设置特别大\n
-            save_chat_history:\t是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
-            capture_screen:\t是否保存聊天记录截图,默认值为False不保存。\n
-            search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-            folder_path:\t存放聊天记录截屏图片的文件夹路径\n
-            wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            group_name:好友或群聊备注
+            duration:自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时
+            content:指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试。
+            at_only:是否只在我被@时才自动回复,默认为True,设置为False的话,只要有新消息就回复
+            at_others:回复的时候,要不要@别人,默认为True
+            maxReply:最多同时回复群内连续发送的n条新消息,默认为3,不用设置特别大
+            save_chat_history:是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
+            capture_screen:是否保存聊天记录截图,默认值为False不保存。
+            search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+            folder_path:存放聊天记录截屏图片的文件夹路径
+            wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-            is_maximize:\t微信界面是否全屏,默认全屏。\n
-            close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+            is_maximize:微信界面是否全屏,默认全屏。
+            close_wechat:任务结束后是否关闭微信,默认关闭
         Returns:
             chat_history:json字符串,格式为:[{'发送人','时间','内容'}],当save_chat_history设置为True时
         '''
@@ -5458,7 +5897,6 @@ class AutoReply():
                     if at_others:
                         at_others(who)
                     pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
                     pyautogui.hotkey('alt','s',_pause=False)
                 else:#消息中没有@我的字样不回复
                     pass
@@ -5467,7 +5905,6 @@ class AutoReply():
                     if at_others:
                         at_others(who)
                     pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
                     pyautogui.hotkey('alt','s',_pause=False)
                 else:
                     pass
@@ -5500,24 +5937,21 @@ class AutoReply():
         myalias=change_my_alias_edit.window_text()#我的群昵称
         ########################################################################
         chatList=main_window.child_window(**Main_window.FriendChatList)#聊天界面内存储所有信息的容器
-        x,y=chatList.rectangle().left+8,(main_window.rectangle().top+main_window.rectangle().bottom)//2#
+        x,y=chatList.rectangle().left+8,(main_window.rectangle().top+main_window.rectangle().bottom)//2
         mouse.click(coords=(x,y))
         responsed=[]
         initialMessages=Tools.pull_messages(friend=group_name,number=maxReply,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
         responsed.extend(initialMessages) 
         Systemsettings.copy_text_to_windowsclipboard(content)#复制回复内容到剪贴
         Systemsettings.open_listening_mode(full_volume=False)#开启监听模式,此时电脑只要不断电不会息屏 
-        start_time=time.time()  
-        while True:
-            if time.time()-start_time<duration:
-                newMessages=Tools.pull_messages(friend=group_name,number=maxReply,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
-                filtered_newMessages=[newMessage for newMessage in newMessages if newMessage not in responsed]
-                for newMessage in filtered_newMessages:
-                    message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype='群聊')
-                    send_message(message_content,message_sender)
-                    responsed.append(newMessage)
-            else:
-                break
+        end_timestamp=time.time()+duration#根据秒数计算截止时间
+        while time.time()<end_timestamp:
+            newMessages=Tools.pull_messages(friend=group_name,number=maxReply,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
+            filtered_newMessages=[newMessage for newMessage in newMessages if newMessage not in responsed]
+            for newMessage in filtered_newMessages:
+                message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype='群聊')
+                send_message(message_content,message_sender)
+                responsed.append(newMessage)
         if save_chat_history:
             chat_history=get_chat_history(friend=group_name,number=2*len(responsed),capture_screen=capture_screen,folder_path=folder_path,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)  
             return chat_history
@@ -5525,22 +5959,43 @@ class AutoReply():
         if close_wechat:
             main_window.close()
 
-def send_message_to_friend(friend:str,message:str,at:list[str]=[],at_all:bool=False,tickle:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->None:
+def send_message_to_friend(friend:str,message:str,at:list[str]=[],at_all:bool=False,tickle:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给单个好友或群聊发送单条信息\n
+    该函数用于给单个好友或群聊发送单条信息
     Args:
-        friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-        message:\t待发送消息。格式:message="消息"\n
-        at:\t所有需要at的人的列表,在群聊内生效\n
-        at_all:\t是否at所有人,在群聊内生效\t
-        tickle:\t是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注。格式:friend="好友或群聊备注"
+        message:待发送消息。格式:message="消息"
+        at:所有需要at的人的列表,在群聊内生效
+        at_all:是否at所有人,在群聊内生效
+        tickle:是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
+    def best_match(chatContactMenu,name):
+        '''在@列表里对比与去掉emoji字符后的name一致的'''
+        at_bottom=False
+        at_list=chatContactMenu.descendants(control_type='List',title='')[0]
+        selected_items=[]
+        selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+        while emoji.replace_emoji(selected_item.window_text())!=name:
+            pyautogui.press('down')
+            selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+            selected_items.append(selected_item)
+            #################################################
+            #当selected_item在selected_items的倒数第二个时，也就是重复出现时,说明已经到达底部
+            if len(selected_items)>2 and selected_item==selected_items[-2]:
+                #到@好友列表底部,必须退出
+                at_bottom=True
+                break
+        if at_bottom:
+            #到达底部还没找到就删除掉名字以及@符号
+            pyautogui.press('backspace',len(name)+1,_pause=False)
+        if not at_bottom:
+            pyautogui.press('enter')
     if len(message)==0:
         raise CantSendEmptyMessageError
     #先使用open_dialog_window打开对话框
@@ -5560,22 +6015,22 @@ def send_message_to_friend(friend:str,message:str,at:list[str]=[],at_all:bool=Fa
     if at:
         Systemsettings.set_english_input()
         for group_member in at:
+            group_member=emoji.replace_emoji(group_member)
             edit_area.type_keys(f'@{group_member}')
             if not chatContactMenu.exists():#@后没有出现说明群聊里没这个人
                 #按len(group_member)+1下backsapce把@xxx删掉
                 pyautogui.press('backspace',presses=len(group_member)+1,_pause=False)
             if chatContactMenu.exists():
-                pyautogui.press('enter')
+                best_match(chatContactMenu,group_member)
+    
     #字数超过2000字直接发txt
     if len(message)<2000:
         Systemsettings.copy_text_to_windowsclipboard(message)
         pyautogui.hotkey('ctrl','v',_pause=False)
-        time.sleep(delay)
         pyautogui.hotkey('alt','s',_pause=False)
     elif len(message)>2000:
         Systemsettings.convert_long_text_to_txt(message)
         pyautogui.hotkey('ctrl','v',_pause=False)
-        time.sleep(delay)
         pyautogui.hotkey('alt','s',_pause=False)
         warn(message=f"微信消息字数上限为2000,超过2000字部分将被省略,该条长文本消息已为你转换为txt发送",category=LongTextWarning)    
     if tickle:
@@ -5585,18 +6040,19 @@ def send_message_to_friend(friend:str,message:str,at:list[str]=[],at_all:bool=Fa
 
 def send_messages_to_friend(friend:str,messages:list[str],tickle:bool=False,delay:float=0.4,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给单个好友或群聊发送多条信息\n
+    该函数用于给单个好友或群聊发送多条信息
     Args:
-        friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-        message:\t待发送消息列表。格式:message=["发给好友的消息1","发给好友的消息2"]\n
-        tickle:\t是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注。格式:friend="好友或群聊备注"
+        message:待发送消息列表。格式:message=["发给好友的消息1","发给好友的消息2"]
+        tickle:是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员
+        delay:发送单条消息延迟,单位:秒/s,默认0.4s
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        delay\t:发送单条消息延迟,单位:秒/s,默认0.4s。\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        delay:发送单条消息延迟,单位:秒/s,默认0.4s。
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     if not messages:
         raise CantSendEmptyMessageError
@@ -5626,33 +6082,24 @@ def send_messages_to_friend(friend:str,messages:list[str],tickle:bool=False,dela
 
 def send_message_to_friends(friends:list[str],message:list[str],tickle:list[bool]=[],delay:float=0.2,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给每friends中的一个好友或群聊发送message中对应的单条信息\n
+    该函数用于给每friends中的一个好友或群聊发送message中对应的单条信息
     Args:
-        friends:\t好友或群聊备注。格式:friends=["好友1","好友2","好友3"]\n
-        message:\t待发送消息,格式: message=[发给好友1的多条消息,发给好友2的多条消息,发给好友3的多条消息]。\n
-        tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-        delay:\t发送单条消息延迟,单位:秒/s,默认0.2s。\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:好友或群聊备注。格式:friends=["好友1","好友2","好友3"]
+        message:待发送消息,格式: message=[发给好友1的多条消息,发给好友2的多条消息,发给好友3的多条消息]
+        tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
+        delay:发送单条消息延迟,单位:秒/s,默认0.2s
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     注意!message与friends长度需一致,并且messages内每一条消息顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
     '''
     #多个好友的发送任务不需要使用open_dialog_window方法了直接在顶部搜索栏搜索,一个一个打开好友的聊天界面，发送消息,这样最高效
     Chats=dict(zip(friends,message))
-    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
-    time.sleep(1)
     i=0
     for friend in Chats:
-        search=main_window.child_window(**Main_window.Search)
-        search.click_input()
-        Systemsettings.copy_text_to_windowsclipboard(friend)
-        time.sleep(1)
-        pyautogui.hotkey('ctrl','v',_pause=False)
-        time.sleep(1)
-        pyautogui.press('enter')
-        edit_area=main_window.child_window(title=friend,control_type='Edit')
+        edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
         edit_area.click_input()
         #字数在50字以内打字发送,超过50字复制粘贴发送,超过2000字直接发word
         if len(Chats.get(friend))==0:
@@ -5679,26 +6126,26 @@ def send_message_to_friends(friends:list[str],message:list[str],tickle:list[bool
     
 def send_messages_to_friends(friends:list[str],messages:list[list[str]],tickle:list[bool]=[],delay:float=0.4,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给多个好友或群聊发送多条信息\n
+    该函数用于给多个好友或群聊发送多条信息
     Args:
-        friends:\t好友或群聊备注列表,格式:firends=["好友1","好友2","好友3"]。\n
-        messages:\t待发送消息,格式: message=[[发给好友1的多条消息],[发给好友2的多条消息],[发给好友3的多条信息]]。\n
-        tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:好友或群聊备注列表,格式:firends=["好友1","好友2","好友3"]。
+        messages:待发送消息,格式: message=[[发给好友1的多条消息],[发给好友2的多条消息],[发给好友3的多条信息]]。
+        tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应
+        delay:发送单条消息延迟,单位:秒/s,默认0.4s。
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        delay:\t发送单条消息延迟,单位:秒/s,默认0.4s。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        delay:发送单条消息延迟,单位:秒/s,默认0.4s。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     注意!messages与friends长度需一致,并且messages内每一个列表顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
     '''
     #多个好友的发送任务不需要使用open_dialog_window方法了直接在顶部搜索栏搜索,一个一个打开好友的聊天界面，发送消息,这样最高效
     Chats=dict(zip(friends,messages))
-    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
     i=0
     for friend in Chats:
-        search=main_window.child_window(**Main_window.Search)
-        search.click_input()
+        edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
+        edit_area.click_input()
         Systemsettings.copy_text_to_windowsclipboard(friend)
         time.sleep(1)
         pyautogui.hotkey('ctrl','v',_pause=False)
@@ -5731,18 +6178,18 @@ def send_messages_to_friends(friends:list[str],messages:list[list[str]],tickle:l
 
 def forward_message(friends:list[str],message:str,delay:float=0.4,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
     '''
-    该函数用于给好友转发消息,实际使用时建议先给文件传输助手转发\n
-    这样可以避免对方聊天信息更新过快导致转发消息被'淹没',进而无法定位出错的问题。\n
+    该函数用于给好友转发消息,实际使用时建议先给文件传输助手转发
+    这样可以避免对方聊天信息更新过快导致转发消息被'淹没',进而无法定位出错的问题。
     Args:
-        friends:\t好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]\n
-        message:\t待发送消息,格式: message="转发消息"。\n
-        delay:\t搜索好友等待时间\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]
+        message:待发送消息,格式: message="转发消息"。
+        delay:搜索每一个好友的等待时间
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        search_pages:\t在会话列表中查询查找带转发消息的第一个好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        search_pages:在会话列表中查询查找带转发消息的第一个好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     def right_click_message():
         max_retry_times=25
@@ -5847,24 +6294,45 @@ def forward_message(friends:list[str],message:str,delay:float=0.4,search_pages:i
         
 def send_file_to_friend(friend:str,file_path:str,at:list[str]=[],at_all:bool=False,with_messages:bool=False,messages:list=[],messages_first:bool=False,delay:float=1,tickle:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给单个好友或群聊发送单个文件\n
+    该函数用于给单个好友或群聊发送单个文件
     Args:
-        friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-        file_path:\t待发送文件绝对路径。\n
-        at:\t所有需要at的人的列表,在群聊内生效\n
-        at_all:\t是否at所有人,在群聊内生效\t
-        with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False\n
-        messages:\t与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注。格式:friend="好友或群聊备注"
+        file_path:待发送文件绝对路径
+        at:所有需要at的人的列表,在群聊内生效
+        at_all:是否at所有人,在群聊内生效
+        with_messages:发送文件时是否给好友发消息。True发送消息,默认为False
+        messages:与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        delay:\t发送单条信息或文件的延迟,单位:秒/s,默认2s。\n
-        tickle:\t是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-        messages_first:\t默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件,\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        delay:发送单条信息或文件的延迟,单位:秒/s,默认2s
+        tickle:是否在发送消息或文件后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员
+        messages_first:默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
+    def best_match(chatContactMenu,name):
+        '''在@列表里对比与去掉emoji字符后的name一致的'''
+        at_bottom=False
+        at_list=chatContactMenu.descendants(control_type='List',title='')[0]
+        selected_items=[]
+        selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+        while emoji.replace_emoji(selected_item.window_text())!=name:
+            pyautogui.press('down')
+            selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+            selected_items.append(selected_item)
+            #################################################
+            #当selected_item在selected_items的倒数第二个时，也就是重复出现时,说明已经到达底部
+            if len(selected_items)>2 and selected_item==selected_items[-2]:
+                #到@好友列表底部,必须退出
+                at_bottom=True
+                break
+        if at_bottom:
+            #到达底部还没找到就删除掉名字以及@符号
+            pyautogui.press('backspace',len(name)+1,_pause=False)
+        if not at_bottom:
+            pyautogui.press('enter')
     if len(file_path)==0:
         raise NotFileError
     if not os.path.isfile(file_path):
@@ -5887,12 +6355,13 @@ def send_file_to_friend(friend:str,file_path:str,at:list[str]=[],at_all:bool=Fal
     if at:
         Systemsettings.set_english_input()
         for group_member in at:
+            group_member=emoji.replace_emoji(group_member)
             edit_area.type_keys(f'@{group_member}')
             if not chatContactMenu.exists():#@后没有出现说明群聊里没这个人
                 #按len(group_member)+1下backsapce把@xxx删掉
                 pyautogui.press('backspace',presses=len(group_member)+1,_pause=False)
             if chatContactMenu.exists():
-                pyautogui.press('enter')
+                best_match(chatContactMenu,group_member)
     if with_messages and messages:
         if messages_first:
             for message in messages:
@@ -5946,21 +6415,21 @@ def send_file_to_friend(friend:str,file_path:str,at:list[str]=[],at_all:bool=Fal
 
 def send_files_to_friend(friend:str,folder_path:str,with_messages:bool=False,messages:list=[str],messages_first:bool=False,delay:float=1,tickle:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,search_pages:int=5)->None:
     '''
-    该函数用于给单个好友或群聊发送多个文件\n
+    该函数用于给单个好友或群聊发送多个文件
     Args:
-        friend:\t好友或群聊备注。格式:friend="好友或群聊备注"\n
-        folder_path:\t所有待发送文件所处的文件夹的地址。\n
-        with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False。\n
-        messages:\t与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注。格式:friend="好友或群聊备注"
+        folder_path:所有待发送文件所处的文件夹的地址
+        with_messages:发送文件时是否给好友发消息。True发送消息,默认为False
+        messages:与文件一同发送的消息。格式:message=["消息1","消息2","消息3"]
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。
-        delay:\t发送单条信息或文件的延迟,单位:秒/s,默认2s。\n
-        tickle:\t是否在发送文件或消息后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员\n
-        messages_first:\t默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件,\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        delay:发送单条信息或文件的延迟,单位:秒/s,默认2s
+        tickle:是否在发送文件或消息后拍一拍好友,默认为False,目前只支持拍一拍好友,不支持拍一拍群成员
+        messages_first:默认先发送文件后发送消息,messages_first设置为True,先发送消息,后发送文件
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     if len(folder_path)==0:
         raise NotFolderError
@@ -6035,20 +6504,20 @@ def send_files_to_friend(friend:str,folder_path:str,with_messages:bool=False,mes
 
 def send_file_to_friends(friends:list[str],file_paths:list[str],with_messages:bool=False,messages:list[list[str]]=[],messages_first:bool=False,delay:float=1,tickle:list[bool]=[],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给每个好友或群聊发送单个不同的文件以及消息\n
+    该函数用于给每个好友或群聊发送单个不同的文件以及消息
     Args:
-        friends:\t好友或群聊备注。格式:friends=["好友1","好友2","好友3"]\n
-        file_paths:\t待发送文件,格式: file=[发给好友1的单个文件,发给好友2的文件,发给好友3的文件]。\n
-        with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False\n
-        messages:\t待发送消息,格式:messages=["发给好友1的单条消息","发给好友2的单条消息","发给好友3的单条消息"]
-        messages_first:\t先发送消息还是先发送文件.默认先发送文件\n
-        delay:\t发送单条消息延迟,单位:秒/s,默认1s。\n
-        tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:好友或群聊备注。格式:friends=["好友1","好友2","好友3"]
+        file_paths:待发送文件,格式: file=[发给好友1的单个文件,发给好友2的文件,发给好友3的文件]
+        with_messages:发送文件时是否给好友发消息。True发送消息,默认为False
+        messages:待发送消息,格式:messages=["发给好友1的单条消息","发给好友2的单条消息","发给好友3的单条消息"]
+        messages_first:先发送消息还是先发送文件.默认先发送文件
+        delay:发送单条消息延迟,单位:秒/s,默认1s
+        tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     注意!messages,filepaths与friends长度需一致,并且messages内每一条消息顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
     
     '''
@@ -6063,19 +6532,14 @@ def send_file_to_friends(friends:list[str],file_paths:list[str],with_messages:bo
         if Systemsettings.is_empty_file(file_path):
             raise EmptyFileError
     Files=dict(zip(friends,file_paths))
-    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
     time.sleep(1)
         #多个好友的发送任务不需要使用open_dialog_window方法了直接在顶部搜索栏搜索,一个一个打开好友的聊天界面，发送消息,这样最高效
     if with_messages and messages:
         Chats=dict(zip(friends,messages))
         i=0
         for friend in Files:
-            search=main_window.child_window(**Main_window.Search)
-            search.click_input()
-            Systemsettings.copy_text_to_windowsclipboard(friend)
-            pyautogui.hotkey('ctrl','v')
-            time.sleep(0.5)
-            pyautogui.press('enter')
+            edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
+            edit_area.click_input()
             edit_area=main_window.child_window(title=friend,control_type='Edit')
             edit_area.click_input()
             if messages_first:
@@ -6127,13 +6591,7 @@ def send_file_to_friends(friends:list[str],file_paths:list[str],with_messages:bo
     else:
         i=0
         for friend in Files:
-            search=main_window.child_window(**Main_window.Search)
-            search.click_input()
-            Systemsettings.copy_text_to_windowsclipboard(friend)
-            pyautogui.hotkey('ctrl','v',_pause=False)
-            time.sleep(1)
-            pyautogui.press('enter')
-            edit_area=main_window.child_window(title=friend,control_type='Edit')
+            edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
             edit_area.click_input()
             Systemsettings.copy_file_to_windowsclipboard(Files.get(friend))
             pyautogui.hotkey('ctrl','v',_pause=False)
@@ -6148,22 +6606,22 @@ def send_file_to_friends(friends:list[str],file_paths:list[str],with_messages:bo
 
 def send_files_to_friends(friends:list[str],folder_paths:list[str],with_messages:bool=False,messages:list[list[str]]=[],message_first:bool=False,delay:float=1,tickle:list[bool]=[],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给多个好友或群聊发送多个不同或相同的文件夹内的所有文件\n
+    该函数用于给多个好友或群聊发送多个不同或相同的文件夹内的所有文件
     Args:
-        friends:\t好友或群聊备注。格式:friends=["好友1","好友2","好友3"]\n
-        folder_paths:\t待发送文件夹路径列表,每个文件夹内可以存放多个文件,格式: FolderPath_list=["","",""]\n
-        with_messages:\t发送文件时是否给好友发消息。True发送消息,默认为False\n
-        message_list:\t待发送消息,格式:message=[[""],[""],[""]]\n
-        message_first:\t先发送消息还是先发送文件,默认先发送文件\n
-        delay:\t发送单条消息延迟,单位:秒/s,默认1s。\n
-        tickle:\t是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:好友或群聊备注。格式:friends=["好友1","好友2","好友3"]
+        folder_paths:待发送文件夹路径列表,每个文件夹内可以存放多个文件,格式: FolderPath_list=["","",""]
+        with_messages:发送文件时是否给好友发消息。True发送消息,默认为False
+        message_list:待发送消息,格式:message=[[""],[""],[""]]
+        message_first:先发送消息还是先发送文件,默认先发送文件
+        delay:发送单条消息延迟,单位:秒/s,默认1s
+        tickle:是否给每一个好友发送消息或文件后拍一拍好友,格式为:[True,True,False,...]的bool值列表,与friends列表中的每一个好友对应\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-    注意! messages,folder_paths与friends长度需一致,并且messages内每一条消息FolderPath_list每一个文件\n
-    顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+    注意! messages,folder_paths与friends长度需一致,并且messages内每一条消息FolderPath_list每一个文件
+    顺序需与friends中好友名称出现顺序一致,否则会出现消息发错的尴尬情况
     '''
     for folder_path in folder_paths:
         folder_path=re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',folder_path)
@@ -6194,18 +6652,11 @@ def send_files_to_friends(friends:list[str],folder_paths:list[str],with_messages
                 pyautogui.hotkey('alt','s',_pause=False)
     folder_paths=[re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',folder_path) for folder_path in folder_paths]
     Files=dict(zip(friends,folder_paths))
-    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
     if with_messages and messages:
         Chats=dict(zip(friends,messages))
         i=0
         for friend in Files:
-            search=main_window.child_window(**Main_window.Search)
-            search.click_input()
-            Systemsettings.copy_text_to_windowsclipboard(friend)
-            time.sleep(0.5)
-            pyautogui.hotkey('ctrl','v',_pause=False)
-            pyautogui.press('enter')
-            edit_area=main_window.child_window(title=friend,control_type='Edit')
+            edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
             edit_area.click_input()
             if message_first:
                 messages=Chats.get(friend)
@@ -6224,12 +6675,7 @@ def send_files_to_friends(friends:list[str],folder_paths:list[str],with_messages
     else:
         i=0
         for friend in Files:
-            search=main_window.child_window(**Main_window.Search)
-            search.click_input()
-            Systemsettings.copy_text_to_windowsclipboard(friend)
-            time.sleep(1)
-            pyautogui.press('enter')
-            edit_area=main_window.child_window(title=friend,control_type='Edit')
+            edit_area,main_window=Tools.open_dialog_window(friend=friend,search_pages=0,wechat_path=wechat_path,is_maximize=is_maximize)
             edit_area.click_input()
             folder_path=Files.get(friend)
             send_files(folder_path)
@@ -6242,18 +6688,18 @@ def send_files_to_friends(friends:list[str],folder_paths:list[str],with_messages
 
 def forward_file(friends:list[str],file_path:str,delay:float=0.5,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用于给好友转发文件,实际使用时建议先给文件传输助手转发\n
-    这样可以避免对方聊天信息更新过快导致转发消息被'淹没',进而无法定位出错的问题。\n
+    该函数用于给好友转发文件,实际使用时建议先给文件传输助手转发
+    这样可以避免对方聊天信息更新过快导致转发消息被'淹没',进而无法定位出错的问题
     Args:
-        friends:\t好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]\n
-        file_path:\t待发送文件,格式: file_path="转发文件路径"。\n
-        delay:发送单条消息延迟,单位:秒/s,默认1s。\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:好友或群聊备注列表。格式:friends=["好友1","好友2","好友3"]
+        file_path:待发送文件,格式: file_path="转发文件路径"
+        delay:发送单条消息延迟,单位:秒/s,默认1s
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
+        is_maximize:微信界面是否全屏,默认全屏
         search_pages:在会话列表中查询查找第一个转发文件的好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     if len(file_path)==0:
         raise NotFileError
@@ -6356,15 +6802,15 @@ def forward_file(friends:list[str],file_path:str,delay:float=0.5,search_pages:in
 
 def voice_call(friend:str,search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来给好友拨打语音电话\n
+    该函数用来给好友拨打语音电话
     Args:
-        friend:好友备注\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     main_window=Tools.open_dialog_window(friend,wechat_path,search_pages=search_pages,is_maximize=is_maximize)[1]  
     Tool_bar=main_window.child_window(**Main_window.ChatToolBar)
@@ -6375,15 +6821,15 @@ def voice_call(friend:str,search_pages:int=5,wechat_path=None,is_maximize:bool=T
 
 def video_call(friend:str,search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来给好友拨打视频电话\n
+    该函数用来给好友拨打视频电话
     Args:
-        friend:\t好友备注.\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     main_window=Tools.open_dialog_window(friend,wechat_path,search_pages=search_pages,is_maximize=is_maximize)[1]  
     Tool_bar=main_window.child_window(**Main_window.ChatToolBar)
@@ -6394,16 +6840,16 @@ def video_call(friend:str,search_pages:int=5,wechat_path=None,is_maximize:bool=T
 
 def voice_call_in_group(group_name:str,friends:list[str],search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来在群聊中发起语音电话\n
+    该函数用来在群聊中发起语音电话
     Args:
-        group_name:\t群聊备注\n
-        friends:\t所有要呼叫的群友备注\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊备注
+        friends:所有要呼叫的群友备注
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        lose_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        lose_wechat:任务结束后是否关闭微信,默认关闭
     '''
     main_window=Tools.open_dialog_window(friend=group_name,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize)[1]  
     Tool_bar=main_window.child_window(**Main_window.ChatToolBar)
@@ -6427,18 +6873,19 @@ def voice_call_in_group(group_name:str,friends:list[str],search_pages:int=5,wech
     if close_wechat:
         main_window.close()
 
-def get_friends_names(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+def get_friends_names(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
     '''
-    该函数用来获取通讯录中所有好友的名称与昵称。\n
-    结果以json格式返回\n
+    该方法用来获取通讯录中所有好友的名称与昵称
+    结果以json字符串或list[dict]格式返回
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
-        json格式:[{"昵称":,"备注":}]*n,n为好友总数
+        contacts:[{"昵称":,"备注":}]*n,n为好友总数,每个dict是好友的信息,包含昵称与备注两个键
     '''
     def get_names(friends):
         names=[]
@@ -6465,7 +6912,7 @@ def get_friends_names(wechat_path:str=None,is_maximize:bool=True,close_wechat:bo
         Names.extend(get_names(friends))
         contacts_settings_window.close()
         contacts=[{'昵称':name[1],'备注':name[0]}for name in Names]
-        contacts_json=json.dumps(contacts,ensure_ascii=False,indent=4)
+        contacts_json=json.dumps(contacts,ensure_ascii=False,indent=2)
         if not close_wechat:
             Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
         return contacts_json
@@ -6481,267 +6928,29 @@ def get_friends_names(wechat_path:str=None,is_maximize:bool=True,close_wechat:bo
             Names.extend(get_names(friends[11-res:11]))
             contacts_settings_window.close()
             contacts=[{'昵称':name[1],'备注':name[0]}for name in Names]
-            contacts_json=json.dumps(contacts,ensure_ascii=False,indent=4)
+            if is_json:
+                contacts=json.dumps(contacts,ensure_ascii=False,indent=2)
             if not close_wechat:
                 Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
         else:
             contacts_settings_window.close()
             contacts=[{'昵称':name[1],'备注':name[0]}for name in Names]
-            contacts_json=json.dumps(contacts,ensure_ascii=False,indent=4)
+            if is_json:
+                contacts=json.dumps(contacts,ensure_ascii=False,indent=2)
             if not close_wechat:
                 Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
-        return contacts_json
+        return contacts
                      
-def get_wecom_friends_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+def auto_answer_call(duration:str,broadcast_content:str,message:str=None,times:int=1,wechat_path:str=None,close_wechat:bool=True)->None:
     '''
-    该函數用来获取通讯录中所有未离职的企业微信好友的信息(昵称,企业名称)\n
-    结果以json格式返回\n
-    Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
-            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
-            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-    Returns:
-        json格式:[{"昵称":,"备注":,'企业':,'职务'}]*n,n为企业微信好友总数
-    '''
-    def get_info():
-        post='无'
-        company='无'
-        global base_info_pane
-        global detail_info_pane
-        try:
-            try:
-                base_info_pane=main_window.children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-            except IndexError:
-                base_info_pane=main_window.children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-            try:
-                detail_info_pane=main_window.children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-            except  IndexError:
-                detail_info_pane=main_window.children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[1].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0].children(title='',control_type='Pane')[0]
-            detail_info=detail_info_pane.descendants(control_type='Text')
-            detail_info=[element.window_text() for element in detail_info]
-            if language=='简体中文':
-                if '企业信息' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='昵称：':
-                        remark=base_info[0]
-                        nickname=base_info[2]
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('企业')+1]
-                    if '职务' in detail_info:
-                        post=detail_info[detail_info.index('职务')+1]
-                    return nickname,company,remark,post
-                else:
-                    return '非企业微信联系人'
-                
-            if language=='英文':
-                if 'Enterprise Information' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='Name: ':
-                        remark=base_info[0]
-                        nickname=base_info[2]
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('Company')+1]
-                    if 'Title' in detail_info:
-                        post=detail_info[detail_info.index('Title')+1]
-                    return nickname,company,remark,post
-                else:
-                    return '非企业微信联系人'
-                
-            if language=='繁体中文':
-                if '企業資訊' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='暱稱：':
-                        remark=base_info[0]
-                        nickname=base_info[2]
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('企業')+1]
-                    if '職務' in detail_info:
-                        post=detail_info[detail_info.index('職務')+1]
-                    return nickname,company,remark,post
-                else:
-                    return '非企业微信联系人'
-        except IndexError:
-            return '非企业微信联系人'
-
-            
-    main_window=Tools.open_contacts(wechat_path=wechat_path,is_maximize=is_maximize)
-    contacts=main_window.child_window(**SideBar.Contacts)
-    contacts.set_focus()
-    contacts.click_input()
-    contacts_list=main_window.child_window(**Main_window.ContactsList)
-    rec=contacts_list.rectangle()  
-    mouse.click(coords=(rec.right-5,rec.top+10))
-    pyautogui.press('End')
-    contacts_list=main_window.child_window(**Main_window.ContactsList)
-    last_wecom_friend_info=get_info()
-    while last_wecom_friend_info=='非企业微信联系人':
-        pyautogui.keyDown('up')
-        try:
-            detail_info=detail_info_pane.descendants(control_type='Text')
-            detail_info=[element.window_text() for element in detail_info]
-            if language=='简体中文':
-                if '企业信息' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='昵称：':
-                        remark=base_info[0]
-                        nickname=base_info[2] 
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('企业')+1]
-                    if '职务' in detail_info:
-                        post=detail_info[detail_info.index('职务')+1] 
-                    last_wecom_friend_info=company 
-
-            if language=='英文':
-                if 'Enterprise Information' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='Name: ':
-                        remark=base_info[0]
-                        nickname=base_info[2] 
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('Company')+1]
-                    if 'Title' in detail_info:
-                        post=detail_info[detail_info.index('Title')+1] 
-                    last_wecom_friend_info=company
-            
-            if language=='繁体中文':
-                if '企業資訊' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='暱稱：':
-                        remark=base_info[0]
-                        nickname=base_info[2] 
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('企業')+1]
-                    if '職務' in detail_info:
-                        post=detail_info[detail_info.index('職務')+1] 
-                    last_wecom_friend_info=company 
-        except IndexError:
-            pass
-    pyautogui.press('Home')
-    companies=[last_wecom_friend_info,'nothing']
-    nicknames=[]
-    remarks=[]
-    posts=[]
-    while companies[-1]!=companies[0]:
-        try:
-            detail_info=detail_info_pane.descendants(control_type='Text')
-            detail_info=[element.window_text() for element in detail_info]
-            if language=='简体中文':
-                if '企业信息' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='昵称：':
-                        remark=base_info[0]
-                        nickname=base_info[2]
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('企业')+1]
-                    if '职务' in detail_info:
-                        post=detail_info[detail_info.index('职务')+1]
-                        posts.append(post)
-                    else:
-                        posts.append('无')
-                    nicknames.append(nickname)
-                    remarks.append(remark)
-                    companies.append(company)
-                else:
-                    pass
-
-            if language=='英文':
-                if 'Enterprise Information' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='Name: ':
-                        remark=base_info[0]
-                        nickname=base_info[2]
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('Company')+1]
-                    if 'Title' in detail_info:
-                        post=detail_info[detail_info.index('Title')+1]
-                        posts.append(post)
-                    else:
-                        posts.append('无')
-                    nicknames.append(nickname)
-                    remarks.append(remark)
-                    companies.append(company)
-                else:
-                    pass
-            
-            if language=='繁体中文':
-                if '企業資訊' in detail_info and '已离职' not in detail_info:
-                    base_info=base_info_pane.descendants(control_type='Text')
-                    base_info=[element.window_text() for element in base_info]
-                    # #如果有昵称选项,说明好友有备注
-                    if base_info[1]=='暱稱：':
-                        remark=base_info[0]
-                        nickname=base_info[2]
-                    else:
-                        nickname=base_info[0]
-                        remark=nickname
-                    company=detail_info[detail_info.index('企業')+1]
-                    if '職務' in detail_info:
-                        post=detail_info[detail_info.index('職務')+1]
-                        posts.append(post)
-                    else:
-                        posts.append('无')
-                    nicknames.append(nickname)
-                    remarks.append(remark)
-                    companies.append(company)
-                else:
-                    pass
-
-        except IndexError:
-            pass
-        pyautogui.press('down',_pause=False,presses=1,interval=0.2)
-    del(companies[0])
-    del(companies[0])
-    record=zip(nicknames,remarks,companies,posts)
-    contacts=[{'昵称':friend[0],'备注':friend[1],'企业':friend[2],'职务':friend[3]}for friend in record]
-    WeCom_json=json.dumps(contacts,ensure_ascii=False,indent=4)
-    if close_wechat:
-        main_window.close()
-    return WeCom_json
-
-def auto_answer_call(duration:str,broadcast_content:str,message:str=None,times:int=2,wechat_path:str=None,close_wechat:bool=True)->None:
-    '''
-    该函数用来自动接听微信电话\n
+    该函数用来自动接听微信电话
     注意！一旦开启自动接听功能后,在设定时间内,你的所有视频语音电话都将优先被PC微信接听,并按照设定的播报与留言内容进行播报和留言。\n
     Args:
-        duration:\t自动接听功能持续时长,格式:s,min,h分别对应秒,分钟,小时,例:duration='1.5h'持续1.5小时\n
-        broadcast_content:\twindowsAPI语音播报内容\n
-        message:\t语音播报结束挂断后,给呼叫者发送的留言\n
-        times:\t语音播报重复次数\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        duration:自动接听功能持续时长,格式:s,min,h分别对应秒,分钟,小时,例:duration='1.5h'持续1.5小时
+        broadcast_content:windowsAPI语音播报内容
+        message:语音播报结束挂断后,给呼叫者发送的留言
+        times:语音播报重复次数
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     def judge_call(call_interface):
         window_text=call_interface.child_window(found_index=1,control_type='Button').texts()[0]
@@ -6769,99 +6978,96 @@ def auto_answer_call(duration:str,broadcast_content:str,message:str=None,times:i
         raise TimeNotCorrectError
     desktop=Desktop(**Independent_window.Desktop)
     Systemsettings.open_listening_mode(full_volume=True)
-    start_time=time.time()
-    while True:
-        if time.time()-start_time<duration:
-            call_interface1=desktop.window(**Independent_window.OldIncomingCallWindow)
-            call_interface2=desktop.window(**Independent_window.NewIncomingCallWindow)
-            if call_interface1.exists():
-                flag,caller_name=judge_call(call_interface1)
-                caller_names.append(caller_name)
-                flags.append(flag)
-                call_window=call_interface1.child_window(found_index=3,title="",control_type='Pane')
-                accept=call_window.children(**Buttons.AcceptButton)[0]
-                if flag=="语音通话":
-                    time.sleep(1)
-                    accept.click_input()
-                    time.sleep(1)
-                    accept_call_window=desktop.window(**Independent_window.OldVoiceCallWindow)
-                    if accept_call_window.exists():
-                        duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                        while not duration_time.exists():
-                            time.sleep(1)
-                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                        Systemsettings.speaker(times=times,text=broadcast_content)
-                        answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
-                        if answering_window.exists():
-                            reject=answering_window.child_window(**Buttons.HangUpButton)
-                            reject.click_input()
-                            if message:
-                                Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,close_wechat=close_wechat,message=message)     
-                else:
-                    time.sleep(1)
-                    accept.click_input()
-                    time.sleep(1)
-                    accept_call_window=desktop.window(**Independent_window.OldVideoCallWindow)
-                    accept_call_window.click_input()
+    end_timestamp=time.time()+duration#根据秒数计算截止时间
+    while time.time()<end_timestamp:
+        call_interface1=desktop.window(**Independent_window.OldIncomingCallWindow)
+        call_interface2=desktop.window(**Independent_window.NewIncomingCallWindow)
+        if call_interface1.exists():
+            flag,caller_name=judge_call(call_interface1)
+            caller_names.append(caller_name)
+            flags.append(flag)
+            call_window=call_interface1.child_window(found_index=3,title="",control_type='Pane')
+            accept=call_window.children(**Buttons.AcceptButton)[0]
+            if flag=="语音通话":
+                time.sleep(1)
+                accept.click_input()
+                time.sleep(1)
+                accept_call_window=desktop.window(**Independent_window.OldVoiceCallWindow)
+                if accept_call_window.exists():
                     duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
                     while not duration_time.exists():
-                            time.sleep(1)
-                            accept_call_window.click_input()
-                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                    Systemsettings.speaker(times=times,text=broadcast_content)
-                    rec=accept_call_window.rectangle()
-                    mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
-                    reject=accept_call_window.child_window(**Buttons.HangUpButton)
-                    reject.click_input()
-                    if message:
-                        Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
-                    
-            elif call_interface2.exists():
-                call_window=call_interface2.child_window(found_index=4,title="",control_type='Pane')
-                accept=call_window.children(**Buttons.AcceptButton)[0]
-                flag,caller_name=judge_call(call_interface2)
-                caller_names.append(caller_name)
-                flags.append(flag)
-                if flag=="语音通话":
-                    time.sleep(1)
-                    accept.click_input()
-                    time.sleep(1)
-                    accept_call_window=desktop.window(**Independent_window.NewVoiceCallWindow)
-                    if accept_call_window.exists():
-                        answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
+                        time.sleep(1)
                         duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                        while not duration_time.exists():
-                            time.sleep(1)
-                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                        Systemsettings.speaker(times=times,text=broadcast_content)
-                        if answering_window.exists():
-                            reject=answering_window.children(**Buttons.HangUpButton)[0]
-                            reject.click_input()
-                            if message:
-                                Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
-                else:
-                    time.sleep(1)
-                    accept.click_input()
-                    time.sleep(1)
-                    accept_call_window=desktop.window(**Independent_window.NewVideoCallWindow)
-                    accept_call_window.click_input()
-                    duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
-                    while not duration_time.exists():
-                            time.sleep(1)
-                            accept_call_window.click_input()
-                            duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
                     Systemsettings.speaker(times=times,text=broadcast_content)
-                    rec=accept_call_window.rectangle()
-                    mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
-                    reject=accept_call_window.child_window(**Buttons.HangUpButton)
-                    reject.click_input()
-                    if message:
-                        Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
-                    
+                    answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
+                    if answering_window.exists():
+                        reject=answering_window.child_window(**Buttons.HangUpButton)
+                        reject.click_input()
+                        if message:
+                            Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,close_wechat=close_wechat,message=message)     
             else:
-                call_interface1=call_interface2=None
+                time.sleep(1)
+                accept.click_input()
+                time.sleep(1)
+                accept_call_window=desktop.window(**Independent_window.OldVideoCallWindow)
+                accept_call_window.click_input()
+                duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                while not duration_time.exists():
+                        time.sleep(1)
+                        accept_call_window.click_input()
+                        duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                Systemsettings.speaker(times=times,text=broadcast_content)
+                rec=accept_call_window.rectangle()
+                mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
+                reject=accept_call_window.child_window(**Buttons.HangUpButton)
+                reject.click_input()
+                if message:
+                    Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
+                
+        elif call_interface2.exists():
+            call_window=call_interface2.child_window(found_index=4,title="",control_type='Pane')
+            accept=call_window.children(**Buttons.AcceptButton)[0]
+            flag,caller_name=judge_call(call_interface2)
+            caller_names.append(caller_name)
+            flags.append(flag)
+            if flag=="语音通话":
+                time.sleep(1)
+                accept.click_input()
+                time.sleep(1)
+                accept_call_window=desktop.window(**Independent_window.NewVoiceCallWindow)
+                if accept_call_window.exists():
+                    answering_window=accept_call_window.child_window(found_index=13,control_type='Pane',title='')
+                    duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                    while not duration_time.exists():
+                        time.sleep(1)
+                        duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                    Systemsettings.speaker(times=times,text=broadcast_content)
+                    if answering_window.exists():
+                        reject=answering_window.children(**Buttons.HangUpButton)[0]
+                        reject.click_input()
+                        if message:
+                            Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
+            else:
+                time.sleep(1)
+                accept.click_input()
+                time.sleep(1)
+                accept_call_window=desktop.window(**Independent_window.NewVideoCallWindow)
+                accept_call_window.click_input()
+                duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                while not duration_time.exists():
+                        time.sleep(1)
+                        accept_call_window.click_input()
+                        duration_time=accept_call_window.child_window(title_re='00:',control_type='Text')
+                Systemsettings.speaker(times=times,text=broadcast_content)
+                rec=accept_call_window.rectangle()
+                mouse.move(coords=(rec.left//2+rec.right//2,rec.bottom-50))
+                reject=accept_call_window.child_window(**Buttons.HangUpButton)
+                reject.click_input()
+                if message:
+                    Messages.send_message_to_friend(wechat_path=wechat_path,friend=caller_name,message=message,close_wechat=close_wechat)
+                
         else:
-            break
+            call_interface1=call_interface2=None
     Systemsettings.close_listening_mode()
     if caller_names:
         print(f'自动接听微信电话结束,在{unchanged_duration}内共计接听{len(caller_names)}个电话\n接听对象:{caller_names}\n电话类型{flags}')
@@ -6870,13 +7076,13 @@ def auto_answer_call(duration:str,broadcast_content:str,message:str=None,times:i
   
 def Log_out(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来PC微信退出登录。\n
+    该函数用来PC微信退出登录
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
     log_out_button=settings.child_window(**Buttons.LogoutButton)
@@ -6886,17 +7092,17 @@ def Log_out(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->
     confirm_button.click_input()
 
    
-def Auto_convert_voice_messages_to_text(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Auto_convert_voice_messages_to_text(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭设置中的语音消息自动转文字。\n
+    该函数用来PC微信开启或关闭设置中的语音消息自动转文字
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -6920,17 +7126,17 @@ def Auto_convert_voice_messages_to_text(state:str='open',wechat_path:str=None,is
     if close_settings_window:
         settings.close()
    
-def Adapt_to_PC_display_scalling(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Adapt_to_PC_display_scalling(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭适配微信设置中的系统所释放比例。\n
+    该函数用来PC微信开启或关闭适配微信设置中的系统所释放比例
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -6954,17 +7160,17 @@ def Adapt_to_PC_display_scalling(state:str='open',wechat_path:str=None,is_maximi
     if close_settings_window:
         settings.close()
   
-def Save_chat_history(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Save_chat_history(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信打开或关闭微信设置中的保留聊天记录选项。\n
+    该函数用来PC微信打开或关闭微信设置中的保留聊天记录选项
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -6991,17 +7197,17 @@ def Save_chat_history(state:str='open',wechat_path:str=None,is_maximize:bool=Tru
     if close_settings_window:
         settings.close()
 
-def Run_wechat_when_pc_boots(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Run_wechat_when_pc_boots(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信打开或关闭微设置中的开机自启动微信。\n
+    该函数用来PC微信打开或关闭微设置中的开机自启动微信
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7025,17 +7231,17 @@ def Run_wechat_when_pc_boots(state:str='open',wechat_path:str=None,is_maximize:b
     if close_settings_window:
         settings.close()
 
-def Using_default_browser(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Using_default_browser(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信打开或关闭微信设置中的使用系统默认浏览器打开网页\n
+    该函数用来PC微信打开或关闭微信设置中的使用系统默认浏览器打开网页
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7060,17 +7266,17 @@ def Using_default_browser(state:str='open',wechat_path:str=None,is_maximize:bool
         settings.close()
 
    
-def Auto_update_wechat(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Auto_update_wechat(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信打开或关闭微信设置中的有更新时自动升级微信。\n
+    该函数用来PC微信打开或关闭微信设置中的有更新时自动升级微信
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7100,14 +7306,14 @@ def Auto_update_wechat(state:str='open',wechat_path:str=None,is_maximize:bool=Tr
 
 def Clear_chat_history(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信清空所有聊天记录,谨慎使用。\n
+    该函数用来PC微信清空所有聊天记录,谨慎使用
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
     general_settings=settings.child_window(**TabItems.GeneralTabItem)
@@ -7121,14 +7327,14 @@ def Clear_chat_history(wechat_path:str=None,is_maximize:bool=True,close_wechat:b
 
 def Close_auto_log_in(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信关闭自动登录,若需要开启需在手机端设置。\n
+    该函数用来PC微信关闭自动登录,若需要开启需在手机端设置
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
     account_settings=settings.child_window(**TabItems.MyAccountTabItem)
@@ -7148,17 +7354,17 @@ def Close_auto_log_in(wechat_path:str=None,is_maximize:bool=True,close_wechat:bo
     
     
    
-def Show_web_search_history(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Show_web_search_history(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信打开或关闭微信设置中的显示网络搜索历史。\n
+    该函数用来PC微信打开或关闭微信设置中的显示网络搜索历史
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7182,17 +7388,17 @@ def Show_web_search_history(state:str='open',wechat_path:str=None,is_maximize:bo
     if close_settings_window:
         settings.close()
 
-def New_message_alert_sound(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def New_message_alert_sound(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭设置中的新消息通知声音。\n
+    该函数用来PC微信开启或关闭设置中的新消息通知声音
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        swechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        swechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭\n   
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭 
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7216,17 +7422,17 @@ def New_message_alert_sound(state:str='open',wechat_path:str=None,is_maximize:bo
     if close_settings_window:
         settings.close()
     
-def Voice_and_video_calls_alert_sound(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def Voice_and_video_calls_alert_sound(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭设置中的语音和视频通话通知声音。\n
+    该函数用来PC微信开启或关闭设置中的语音和视频通话通知声音
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7249,17 +7455,17 @@ def Voice_and_video_calls_alert_sound(state:str='open',wechat_path:str=None,is_m
             print('语音和视频通话通知声音已关闭,无需关闭')
     settings.close()
   
-def Moments_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Moments_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭设置中的朋友圈消息提示。\n
+    该函数用来PC微信开启或关闭设置中的朋友圈消息提示
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7284,17 +7490,17 @@ def Moments_notification_flag(state:str='open',wechat_path:str=None,is_maximize:
         settings.close()
 
     
-def Channel_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Channel_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭设置中的视频号消息提示。\n
+    该函数用来PC微信开启或关闭设置中的视频号消息提示
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7318,17 +7524,17 @@ def Channel_notification_flag(state:str='open',wechat_path:str=None,is_maximize:
     if close_settings_window:
         settings.close()
 
-def Topstories_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Topstories_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭设置中的看一看消息提示。\n
+    该函数用来PC微信开启或关闭设置中的看一看消息提示
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7352,17 +7558,17 @@ def Topstories_notification_flag(state:str='open',wechat_path:str=None,is_maximi
     if close_settings_window:
         settings.close()
 
-def Miniprogram_notification_flag(state:str='open',wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
+def Miniprogram_notification_flag(state:Literal['close','open'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信开启或关闭设置中的小程序消息提示。\n
+    该函数用来PC微信开启或关闭设置中的小程序消息提示
     Args:
-        state:\t决定是否开启或关闭某项设置,取值:'close','open',默认为open\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        state:决定是否开启或关闭某项设置,取值:'close','open',默认为open
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     choices={'open','close'}
     if state not in choices:
@@ -7388,15 +7594,15 @@ def Miniprogram_notification_flag(state:str='open',wechat_path:str=None,is_maxim
 
 def Change_capture_screen_shortcut(shortcuts:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信修改微信设置中截取屏幕的快捷键。\n
+    该函数用来PC微信修改微信设置中截取屏幕的快捷键
     Args:
-        shortcuts:\t快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        shortcuts:快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     
     '''
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
@@ -7415,15 +7621,15 @@ def Change_capture_screen_shortcut(shortcuts:list[str],wechat_path:str=None,is_m
    
 def Change_open_wechat_shortcut(shortcuts:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信修改微信设置中打开微信的快捷键。\n
+    该函数用来PC微信修改微信设置中打开微信的快捷键
     Args:
-        shortcuts:\t快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        shortcuts:快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
     shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -7440,15 +7646,15 @@ def Change_open_wechat_shortcut(shortcuts:list[str],wechat_path:str=None,is_maxi
 
 def Change_lock_wechat_shortcut(shortcuts:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信修改微信设置中锁定微信的快捷键。\n
+    该函数用来PC微信修改微信设置中锁定微信的快捷键
     Args:
-        shortcuts:\t快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        shortcuts:快捷键键位名称列表,若你想将截取屏幕的快捷键设置为'ctrl+shift',那么shortcuts=['ctrl','shift']\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
     shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -7465,17 +7671,17 @@ def Change_lock_wechat_shortcut(shortcuts:list[str],wechat_path:str=None,is_maxi
 
 def Change_send_message_shortcut(shortcut:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信修改微信设置中发送消息的快捷键。\n
+    该函数用来PC微信修改微信设置中发送消息的快捷键
     Args:
-        shortcut:\t快捷键键位取值为0或1,对应Enter或ctrl+enter。\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        shortcut:快捷键键位取值为0或1,对应Enter或ctrl+enter
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
-    if shortcut not in [0,1]:
+    if shortcut not in {0,1}:
         raise WrongParameterError('shortcut的值应为0或1!')
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
     Shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -7494,14 +7700,14 @@ def Change_send_message_shortcut(shortcut:int=0,wechat_path:str=None,is_maximize
 
 def Shortcut_default(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_settings_window:bool=True)->None:
     '''
-    该函数用来PC微信将快捷键恢复为默认设置。\n
+    该函数用来PC微信将快捷键恢复为默认设置
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        close_settings_window:\t任务完成后是否关闭设置界面窗口,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        close_settings_window:任务完成后是否关闭设置界面窗口,默认关闭
     '''
     settings,main_window=Tools.open_settings(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)
     shortcut=settings.child_window(**TabItems.ShortCutTabItem)
@@ -7512,18 +7718,18 @@ def Shortcut_default(wechat_path:str=None,is_maximize:bool=True,close_wechat:boo
     if close_settings_window:
         settings.close()
 
-def pin_friend(friend:str,state:str='open',search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def pin_friend(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来将好友在会话内置顶或取消置顶\n
     Args:
-        friend:\t好友备注。\n
-        state:取值为open或close,默认值为open,用来决定置顶或取消置顶好友,state为open时执行置顶操作,state为close时执行取消置顶操作\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        state:取值为open或close,,用来决定置顶或取消置顶好友,state为open时执行置顶操作,state为close时执行取消置顶操作\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -7546,18 +7752,18 @@ def pin_friend(friend:str,state:str='open',search_pages:int=5,wechat_path=None,i
     if close_wechat:
         main_window.close()
     
-def mute_friend_notifications(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def mute_friend_notifications(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来开启或关闭好友的消息免打扰\n
     Args:
-        friend:好友备注\n
-        state:取值为open或close,默认值为open,用来决定开启或关闭好友的消息免打扰设置,state为open时执行开启消息免打扰操作,state为close时执行关闭消息免打扰操作\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        state:取值为open或close,,用来决定开启或关闭好友的消息免打扰设置,state为open时执行开启消息免打扰操作,state为close时执行关闭消息免打扰操作\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -7583,18 +7789,18 @@ def mute_friend_notifications(friend:str,state:str='open',search_pages:int=5,wec
             main_window.click_input()  
             main_window.close()
     
-def sticky_friend_on_top(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def sticky_friend_on_top(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来开启或关闭好友的聊天置顶\n
     Args:
-        friend:\t好友备注\n 
-        state:取值为open或close,默认值为open,用来决定开启或关闭好友的聊天置顶设置,state为open时执行开启聊天置顶操作,state为close时执行关闭消息免打扰操作\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        state:取值为open或close,,用来决定开启或关闭好友的聊天置顶设置,state为open时执行开启聊天置顶操作,state为close时执行关闭消息免打扰操作\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -7624,13 +7830,13 @@ def clear_friend_chat_history(friend:str,search_pages:int=5,wechat_path:str=None
     ''' 
     该函数用来清空与好友的聊天记录\n
     Args:
-        friend:\t好友备注\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     
     '''
     friend_settings_window,main_window=Tools.open_friend_settings(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
@@ -7646,13 +7852,13 @@ def delete_friend(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize
     ''' 
     该函数用来删除好友\n
     Args:
-        friend:好友备注\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path\t:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     delete_friend_item=menu.child_window(**MenuItems.DeleteMenuItem)
@@ -7668,14 +7874,14 @@ def add_new_friend(phone_number:str=None,wechat_number:str=None,request_content:
     '''
     该函数用来添加新朋友,微信对添加好友的检测机制比较严格,建议添加好友频率不要太高\n
     Args:
-        phone_number:\t手机号\n
-        wechat_number:\t微信号\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        phone_number:手机号
+        wechat_number:微信号
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-    注意:手机号与微信号至少要有一个!\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
+    注意:手机号与微信号至少要有一个!
     '''
     desktop=Desktop(**Independent_window.Desktop)
     main_window=Tools.open_contacts(wechat_path,is_maximize=is_maximize)
@@ -7745,14 +7951,14 @@ def change_friend_remark(friend:str,remark:str,search_pages:int=5,wechat_path:st
     '''
     该函数用来修改好友详情页面内的备注\n
     Args:
-        friend:\t好友备注或昵称\n
-        remark:\t待修改的好友备注\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注或昵称
+        remark:待修改的好友备注
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     if friend==remark:
         raise SameNameError
@@ -7778,15 +7984,15 @@ def change_friend_tag(friend:str,tag:str,clear_all:bool=False,search_pages:int=5
     '''
     该函数用来修改好友详情页的标签\n
     Args:
-        friend:\t好友备注\n
-        tag:\t标签名\n
-        clear_all:\t是否删除掉先前标注的所有Tag,默认为False不删除
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        tag:标签名
+        clear_all:是否删除掉先前标注的所有Tag,默认为False不删除
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     change_remark=menu.child_window(**MenuItems.EditContactMenuItem)
@@ -7815,14 +8021,14 @@ def change_friend_description(friend:str,description:str,search_pages:int=5,wech
     '''
     该函数用来修改好友详情页的描述\n
     Args:
-        friend:\t好友备注\n
-        description:\t对好友的描述\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        description:对好友的描述
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     change_remark=menu.child_window(**MenuItems.EditContactMenuItem)
@@ -7846,15 +8052,15 @@ def change_friend_phone_number(friend:str,phone_num:str,clear_all:bool=False,sea
     '''
     该函数用来修改好友详情页的电话号码\n
     Args:
-        friend:\t好友备注\n
-        pnone_num:\t好友电话号码\n
-        clear_all:\t是否删除掉先前备注的所有电话号,默认为False不删除\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        pnone_num:好友电话号码
+        clear_all:是否删除掉先前备注的所有电话号,默认为False不删除
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     change_remark=menu.child_window(**MenuItems.EditContactMenuItem)
@@ -7878,18 +8084,18 @@ def change_friend_phone_number(friend:str,phone_num:str,clear_all:bool=False,sea
         main_window.close()
 
 
-def add_friend_to_blacklist(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def add_friend_to_blacklist(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来将好友添加至黑名单\n
     Args:
-        friend:\t好友备注\n
-        state:\t取值为open或close,默认值为open,用来决定是否将好友添加至黑名单,state为open时执行将好友加入黑名单操作,state为close时执行将好友移出黑名单操作。\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为0,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        state:取值为open或close,,用来决定是否将好友添加至黑名单,state为open时执行将好友加入黑名单操作,state为close时执行将好友移出黑名单操作。\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为0,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -7919,18 +8125,18 @@ def add_friend_to_blacklist(friend:str,state:str='open',search_pages:int=5,wecha
         if close_wechat:
             main_window.close()
            
-def set_friend_as_star_friend(friend:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def set_friend_as_star_friend(friend:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来将好友设置为星标朋友\n
+    该函数用来将好友设置为星标朋友
     Args:
-        friend:好友备注。\n
-        state:\t取值为open或close,默认值为open,用来决定是否将好友设为星标朋友,state为open时执行将好友设为星标朋友操作,state为close时执行不再将好友设为星标朋友\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注。
+        state:取值为open或close,,用来决定是否将好友设为星标朋友,state为open时执行将好友设为星标朋友操作,state为close时执行不再将好友设为星标朋友\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -7957,19 +8163,19 @@ def set_friend_as_star_friend(friend:str,state:str='open',search_pages:int=5,wec
         if close_wechat: 
             main_window.close()
                     
-def change_friend_privacy(friend:str,privacy:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def change_friend_privacy(friend:str,privacy:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来修改好友权限\n
     Args:
-        friend:好友备注。\n
-        privacy:好友权限,共有:'仅聊天',"聊天、朋友圈、微信运动等",'不让他（她）看',"不看他（她）"四种\n
-        state:取值为open或close,用来决定上述四个权限的开启或关闭\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注
+        privacy:好友权限,共有:'仅聊天',"聊天、朋友圈、微信运动等",'不让他（她）看',"不看他（她）"四种
+        state:取值为open或close,用来决定上述四个权限的开启或关闭
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     privacy_rights=['仅聊天',"聊天、朋友圈、微信运动等",'不让他（她）看',"不看他（她）"]
     states=['open','close']
@@ -8077,13 +8283,13 @@ def get_friend_wechat_number(friend:str,search_pages:int=5,wechat_path:str=None,
     '''
     该函数根据微信备注获取单个好友的微信号\n
     Args:
-        friend:\t好友备注。\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友备注。
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     profile_window,main_window=Tools.open_friend_profile(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     wechat_number=profile_window.child_window(control_type='Text',found_index=4).window_text()
@@ -8094,14 +8300,14 @@ def get_friend_wechat_number(friend:str,search_pages:int=5,wechat_path:str=None,
 
 def get_friends_wechat_numbers(friends:list[str],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
     '''
-    该函数根据微信备注获取多个好友微信号\n
+    该函数根据微信备注获取多个好友微信号
     Args:
-        friends:\t所有待获取微信号的好友的备注列表。\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:所有待获取微信号的好友的备注列表。
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     wechat_numbers=[]
     for friend in friends:
@@ -8116,16 +8322,16 @@ def get_friends_wechat_numbers(friends:list[str],wechat_path:str=None,is_maximiz
 
 def share_contact(friend:str,others:list[str],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来推荐好友给其他人\n
+    该函数用来推荐好友名片给其他人\n
     Args:
-        friend:\t被推荐好友备注\n
-        others:\t推荐人备注列表\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:被推荐好友备注
+        others:推荐人备注列表
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     share_contact=menu.child_window(**MenuItems.ShareContactMenuItem)
@@ -8185,18 +8391,18 @@ def share_contact(friend:str,others:list[str],search_pages:int=5,wechat_path:str
     if close_wechat:
         main_window.close()
 
-def pin_group(group_name:str,state:str='open',search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def pin_group(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来将群聊在会话内置顶或取消置顶\n
     Args:
-        group_name:\t群聊备注。\n
-        state:取值为open或close,默认值为open,用来决定置顶或取消置顶群聊,state为open时执行置顶操作,state为close时执行取消置顶操作\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊备注。
+        state:取值为open或close,,用来决定置顶或取消置顶群聊,state为open时执行置顶操作,state为close时执行取消置顶操作\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -8219,19 +8425,20 @@ def pin_group(group_name:str,state:str='open',search_pages:int=5,wechat_path=Non
     if close_wechat:
         main_window.close()
 
-def create_group_chat(friends:list[str],group_name:str=None,wechat_path:str=None,is_maximize:bool=True,messages:list=[str],close_wechat:bool=True,delay:float=0.4)->None:
+def create_group_chat(friends:list[str],group_name:str=None,wechat_path:str=None,is_maximize:bool=True,messages:list[str]=[],delay:float=0.4,close_wechat:bool=True)->None:
     '''
-    该函数用来新建群聊\n
+    该函数用来新建群聊
     Args:
-        friends:\t新群聊的好友备注列表。\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friends:新群聊的好友备注列表。
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
-        messages:\t建群后是否发送消息,messages非空列表,在建群后会发送消息\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
+        messages:建群后是否发送消息,messages非空列表,在建群后会发送消息
+        delay:发送单条消息延迟,单位:秒/s,默认1s。
     '''
-    if len(friends)<=2:
+    if len(friends)<2:
         raise CantCreateGroupError
     main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
     cerate_group_chat_button=main_window.child_window(title="发起群聊",control_type="Button")
@@ -8244,13 +8451,13 @@ def create_group_chat(friends:list[str],group_name:str=None,wechat_path:str=None
         pyautogui.hotkey('ctrl','v')
         pyautogui.press("enter")
         pyautogui.press('backspace')
-        time.sleep(2)
+        time.sleep(0.5)
     confirm=Add_member_window.child_window(**Buttons.CompleteButton)
     confirm.click_input()
-    time.sleep(10)
+    time.sleep(8)
     if messages:
         group_edit=main_window.child_window(**Main_window.CurrentChatWindow)
-        for message in messages:
+        for message in message:
             Systemsettings.copy_text_to_windowsclipboard(message)
             pyautogui.hotkey('ctrl','v')
             time.sleep(delay)
@@ -8276,14 +8483,14 @@ def change_group_name(group_name:str,change_name:str,search_pages:int=5,wechat_p
     '''
     该函数用来修改群聊名称\n
     Args:
-        group_name:群聊名称\n
-        change_name:待修改的名称\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        change_name:待修改的名称
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     if group_name==change_name:
         raise SameNameError(f'待修改的群名需与先前的群名不同才可修改！')
@@ -8317,14 +8524,14 @@ def change_my_alias_in_group(group_name:str,my_alias:str,search_pages:int=5,wech
     '''
     该函数用来修改我在本群的昵称\n
     Args:
-        group_name:\t群聊名称\n
-        my_alias:\t待修改的我的群昵称\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        my_alias:待修改的我的群昵称
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     change_my_alias_button=group_chat_settings_window.child_window(**Buttons.MyAliasInGroupButton)
@@ -8347,14 +8554,14 @@ def change_group_remark(group_name:str,remark:str,search_pages:int=5,wechat_path
     '''
     该函数用来修改群聊备注\n
     Args:
-        group_name:\t群聊名称\n
-        remark:\t群聊备注\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        remark:群聊备注
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     change_group_remark_button=group_chat_settings_window.child_window(**Buttons.RemarkButton)
@@ -8373,18 +8580,18 @@ def change_group_remark(group_name:str,remark:str,search_pages:int=5,wechat_path
     if close_wechat:
         main_window.close()
 
-def show_group_members_nickname(group_name:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def show_group_members_nickname(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来开启或关闭显示群聊成员名称\n
     Args:
-        group_name:\t群聊名称\n
-        state:\t取值为open或close,默认值为open,用来决定是否显示群聊成员名称,state为open时执行将开启显示群聊成员名称操作,state为close时执行关闭显示群聊成员名称\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        state:取值为open或close,,用来决定是否显示群聊成员名称,state为open时执行将开启显示群聊成员名称操作,state为close时执行关闭显示群聊成员名称\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -8411,18 +8618,18 @@ def show_group_members_nickname(group_name:str,state:str='open',search_pages:int
         main_window.close()
 
 
-def mute_group_notifications(group_name:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def mute_group_notifications(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来开启或关闭群聊消息免打扰\n
     Args:
-        group_name:\t群聊名称\n
-        state:\t取值为open或close,默认值为open,用来决定是否对该群开启消息免打扰,state为open时执行将开启消息免打扰操作,state为close时执行关闭消息免打扰\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        state:取值为open或close,,用来决定是否对该群开启消息免打扰,state为open时执行将开启消息免打扰操作,state为close时执行关闭消息免打扰\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -8439,7 +8646,6 @@ def mute_group_notifications(group_name:str,state:str='open',search_pages:int=5,
         main_window.click_input()
         if close_wechat:  
             main_window.close()
-        
     else:
         if state=='open':
             mute_checkbox.click_input()
@@ -8454,14 +8660,14 @@ def sticky_group_on_top(group_name:str,state='open',search_pages:int=5,wechat_pa
     '''
     该函数用来将微信群聊聊天置顶或取消聊天置顶\n
     Args:
-        group_name:\t群聊名称\n
-        state:\t取值为open或close,默认值为open,用来决定是否将该群聊聊天置顶,state为open时将该群聊聊天置顶,state为close时取消该群聊聊天置顶\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        state:取值为open或close,,用来决定是否将该群聊聊天置顶,state为open时将该群聊聊天置顶,state为close时取消该群聊聊天置顶\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -8488,18 +8694,18 @@ def sticky_group_on_top(group_name:str,state='open',search_pages:int=5,wechat_pa
         if close_wechat:
             main_window.close() 
          
-def save_group_to_contacts(group_name:str,state:str='open',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def save_group_to_contacts(group_name:str,state:Literal['close','open'],search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来将群聊保存或取消保存到通讯录\n
     Args:
-        group_name:\t群聊名称\n
-        state:\t取值为open或close,默认值为open,用来,state为open时将该群聊保存至通讯录,state为close时取消该群保存到通讯录\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        state:取值为open或close,,用来,state为open时将该群聊保存至通讯录,state为close时取消该群保存到通讯录\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     choices=['open','close']
     if state not in choices:
@@ -8530,13 +8736,13 @@ def clear_group_chat_history(group_name:str,search_pages:int=5,wechat_path:str=N
     '''
     该函数用来清空群聊聊天记录\n
     Args:
-        group_name:群聊名称\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     pyautogui.press('pagedown')
@@ -8551,13 +8757,13 @@ def quit_group_chat(group_name:str,search_pages:int=5,wechat_path:str=None,is_ma
     '''
     该函数用来退出微信群聊\n
     Args:
-        group_name:\t群聊名称\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     pyautogui.press('pagedown')
@@ -8568,82 +8774,50 @@ def quit_group_chat(group_name:str,search_pages:int=5,wechat_path:str=None,is_ma
     if close_wechat:
         main_window.close()
 
-def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友进群',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友进群',search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
     '''
     该函数用来邀请他人至群聊,建议:30-50人/群/日,否则可能限制该功能甚至封号!\n
-    邀请进群的人数小于30人时一次性拉取,超过30人后,会分批次,每隔5min一批\n
+    邀请进群的人数小于30人时一次性拉取,超过30人后,会分批次,每隔1min一批
     Args:
-        group_name:\t群聊名称\n
-        friends:\t所有待邀请好友备注列表\n
-        query:\t如果拉人进群请求存在的话,query为需要向群主或管理员发送的请求内容,默认为'拉好友进群'可以自行设置内容\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        friends:所有待邀请好友备注列表
+        query:如果拉人进群请求存在的话,query为需要向群主或管理员发送的请求内容,默认为'拉好友进群'可以自行设置内容\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
-    add=group_chat_settings_window.child_window(title='',control_type="Button",found_index=1)
-    Approval_window=main_window.child_window(**Panes.ApprovalPane)#群主开启邀请好友需经过同意后邀请好友会弹出该窗口需要向群主发送请求
-    GroupInvitationApprovalWindow=main_window.child_window(**Windows.LargeGroupInvitationApprovalWindow)#群聊人数超过100以上拉人时必须点击确认发送邀请链接
-    Add_member_window=main_window.child_window(**Main_window.AddMemberWindow)
-    searchList=Add_member_window.child_window(**Lists.SelectContactToAddList)
-    complete_button=Add_member_window.child_window(**Buttons.CompleteButton)
-    search=Add_member_window.child_window(**Edits.SearchEdit)
-    add.click_input()
-    if len(friends)<=30:
-        for other_friend in friends:
-            Systemsettings.copy_text_to_windowsclipboard(other_friend)
-            time.sleep(0.5)
-            pyautogui.hotkey('ctrl','v')
-            if not searchList.children(control_type='ListItem'):
-                pass
-            if searchList.children(control_type='ListItem'):
-                searchResult=searchList.children(control_type='ListItem',title=other_friend)
-                if searchResult:
-                    searchResult[0].click_input()
-            pyautogui.hotkey('ctrl','a')
-            pyautogui.press('backspace')
-        complete_button.click_input()
-        if Approval_window.exists():
-            Systemsettings.copy_text_to_windowsclipboard(query)
-            Approval_window.child_window(control_type='Edit',found_index=0).click_input()
-            pyautogui.hotkey('ctrl','v')
-            Approval_window.child_window(control_type='Button',found_index=0).click_input()
-        if GroupInvitationApprovalWindow.exists():
-            GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
-    else:  
-        res=len(friends)%30#余数
-        for i in range(0,len(friends),30):#20个一批
-            if i+30<=len(friends): 
-                for other_friend in friends[i:i+30]:
-                    Systemsettings.copy_text_to_windowsclipboard(other_friend)
-                    time.sleep(0.5)
-                    pyautogui.hotkey('ctrl','v')
-                    if not searchList.children(control_type='ListItem'):
-                        pass
-                    if searchList.children(control_type='ListItem'):
-                        searchResult=searchList.children(control_type='ListItem',title=other_friend)
-                        if searchResult:
-                            searchResult[0].click_input()
-                    pyautogui.hotkey('ctrl','a')
-                    pyautogui.press('backspace')
-                complete_button.click_input()
-                if Approval_window.exists():
-                    Systemsettings.copy_text_to_windowsclipboard(query)
-                    Approval_window.child_window(control_type='Edit',found_index=0).click_input()
-                    pyautogui.hotkey('ctrl','v')
-                    Approval_window.child_window(control_type='Button',found_index=0).click_input()
-                if GroupInvitationApprovalWindow.exists():
-                    GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
-                time.sleep(300)
-                add.click_input()
-                search.click_input()
-            else:
-                pass
-        if res:
-            for other_friend in friends[len(friends)-res:len(friends)]:
+    showAllButton=group_chat_settings_window.child_window(**Buttons.ShowAllButton)
+    chatList=group_chat_settings_window.child_window(**Lists.ChatList)
+    #Notfriends为新增和移出两个按钮在不同语言下的名称，其在聊天列表中也是ListItem，
+    #当群聊人数少没有查看更多按钮时直接遍历获取window_text
+    #会把这两个东西的名称也包含进去，因此需要筛选一下
+    Notfriends={ListItems.AddListItem['title'],ListItems.RemoveListItem['title']}
+    if showAllButton.exists():
+        #查看更多按钮点击后,新增和移出两个按钮会消失不见
+        showAllButton.click_input()
+        group_members=[listitem for listitem in chatList.children(control_type='ListItem')]
+        group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+    else:
+        group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.window_text() not in Notfriends]
+        group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+    friends=[friend for friend in friends if friend not in group_members_nicknames]
+    if not friends:
+        print(f'待邀请好友已均位于{group_name}中,无法邀请至群聊中!')
+    if friends:
+        add=group_chat_settings_window.child_window(title='',control_type="Button",found_index=1)
+        Approval_window=main_window.child_window(**Panes.ApprovalPane)#群主开启邀请好友需经过同意后邀请好友会弹出该窗口需要向群主发送请求
+        GroupInvitationApprovalWindow=main_window.child_window(**Windows.LargeGroupInvitationApprovalWindow)#群聊人数超过100以上拉人时必须点击确认发送邀请链接
+        Add_member_window=main_window.child_window(**Main_window.AddMemberWindow)
+        searchList=Add_member_window.child_window(**Lists.SelectContactToAddList)
+        complete_button=Add_member_window.child_window(**Buttons.CompleteButton)
+        search=Add_member_window.child_window(**Edits.SearchEdit)
+        add.click_input()
+        if len(friends)<=30:
+            for other_friend in friends:
                 Systemsettings.copy_text_to_windowsclipboard(other_friend)
                 time.sleep(0.5)
                 pyautogui.hotkey('ctrl','v')
@@ -8655,7 +8829,7 @@ def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友
                         searchResult[0].click_input()
                 pyautogui.hotkey('ctrl','a')
                 pyautogui.press('backspace')
-                complete_button.click_input()#
+            complete_button.click_input()
             if Approval_window.exists():
                 Systemsettings.copy_text_to_windowsclipboard(query)
                 Approval_window.child_window(control_type='Edit',found_index=0).click_input()
@@ -8663,8 +8837,58 @@ def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友
                 Approval_window.child_window(control_type='Button',found_index=0).click_input()
             if GroupInvitationApprovalWindow.exists():
                 GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
-    if group_chat_settings_window.exists():
-        group_chat_settings_window.close()
+        else:  
+            res=len(friends)%30#余数
+            for i in range(0,len(friends),30):#20个一批
+                if i+30<=len(friends): 
+                    for other_friend in friends[i:i+30]:
+                        Systemsettings.copy_text_to_windowsclipboard(other_friend)
+                        time.sleep(0.5)
+                        pyautogui.hotkey('ctrl','v')
+                        if not searchList.children(control_type='ListItem'):
+                            pass
+                        if searchList.children(control_type='ListItem'):
+                            searchResult=searchList.children(control_type='ListItem',title=other_friend)
+                            if searchResult:
+                                searchResult[0].click_input()
+                        pyautogui.hotkey('ctrl','a')
+                        pyautogui.press('backspace')
+                    complete_button.click_input()
+                    if Approval_window.exists():
+                        Systemsettings.copy_text_to_windowsclipboard(query)
+                        Approval_window.child_window(control_type='Edit',found_index=0).click_input()
+                        pyautogui.hotkey('ctrl','v')
+                        Approval_window.child_window(control_type='Button',found_index=0).click_input()
+                    if GroupInvitationApprovalWindow.exists():
+                        GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
+                    time.sleep(60)
+                    add.click_input()
+                    search.click_input()
+                else:
+                    pass
+            if res:
+                for other_friend in friends[len(friends)-res:len(friends)]:
+                    Systemsettings.copy_text_to_windowsclipboard(other_friend)
+                    time.sleep(0.5)
+                    pyautogui.hotkey('ctrl','v')
+                    if not searchList.children(control_type='ListItem'):
+                        pass
+                    if searchList.children(control_type='ListItem'):
+                        searchResult=searchList.children(control_type='ListItem',title=other_friend)
+                        if searchResult:
+                            searchResult[0].click_input()
+                    pyautogui.hotkey('ctrl','a')
+                    pyautogui.press('backspace')
+                    complete_button.click_input()#
+                if Approval_window.exists():
+                    Systemsettings.copy_text_to_windowsclipboard(query)
+                    Approval_window.child_window(control_type='Edit',found_index=0).click_input()
+                    pyautogui.hotkey('ctrl','v')
+                    Approval_window.child_window(control_type='Button',found_index=0).click_input()
+                if GroupInvitationApprovalWindow.exists():
+                    GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
+        if group_chat_settings_window.exists():
+            group_chat_settings_window.close()
     if close_wechat:
         main_window.close()
 
@@ -8673,14 +8897,14 @@ def remove_friends_from_group(group_name:str,friends:list[str],search_pages:int=
     '''
     该函数用来将群成员移出群聊\n
     Args:
-        group_name:\t群聊名称\n
-        friends:\t所有移出群聊的成员备注列表\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        friends:所有移出群聊的成员备注列表
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     delete=group_chat_settings_window.child_window(title='',control_type="Button",found_index=2)
@@ -8713,14 +8937,14 @@ def add_friend_from_group(group_name:str,friend:str,request_content:str=None,sea
     '''
     该函数用来添加群成员为好友\n
     Args:
-        group_name:\t群聊名称\n
-        friend:\t待添加群聊成员群聊中的名称\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        friend:待添加群聊成员群聊中的名称
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     search=group_chat_settings_window.child_window(**Edits.SearchGroupMemeberEdit)
@@ -8756,14 +8980,14 @@ def create_an_new_note(content:str=None,file:str=None,wechat_path:str=None,is_ma
     '''
     该函数用来创建一个新笔记\n
     Args:
-        content:\t笔记文本内容\n
-        file:\t笔记文件内容\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        content:笔记文本内容
+        file:笔记文件内容
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        content_first:\t先写文本内容还是先放置文件\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        content_first:先写文本内容还是先放置文件
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     main_window=Tools.open_collections(wechat_path=wechat_path,is_maximize=is_maximize)
     create_an_new_note_button=main_window.child_window(**Buttons.CerateNewNote)
@@ -8865,14 +9089,14 @@ def edit_group_notice(group_name:str,content:str,search_pages:int=5,wechat_path:
     '''
     该函数用来编辑群公告\n
     Args:
-        group_name:\t群聊名称\n
-        content:\t群公告内容\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称
+        content:群公告内容
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat\t:任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     edit_group_notice_button=group_chat_settings_window.child_window(**Buttons.EditGroupNotificationButton)
@@ -8922,22 +9146,22 @@ def edit_group_notice(group_name:str,content:str,search_pages:int=5,wechat_path:
             if close_wechat:
                 main_window.close()
 
-def auto_reply_to_friend(friend:str,duration:str,content:str,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->(str|None):
+def auto_reply_to_friend(friend:str,duration:str,content:str,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->(str|None):
     '''
     该函数用来实现类似QQ的自动回复某个好友的消息\n
     Args:
-        friend:\t好友或群聊备注\n
-        duration:\t自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时\n
-        content:\t指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试。\n
-        save_chat_history:\t是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
-        capture_screen:\t是否保存聊天记录截图,默认值为False不保存。\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        folder_path:\t存放聊天记录截屏图片的文件夹路径\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        duration:自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时
+        content:指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试。
+        save_chat_history:是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
+        capture_screen:是否保存聊天记录截图,默认值为False不保存。
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        folder_path:存放聊天记录截屏图片的文件夹路径
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
         chat_history:json字符串,格式为:[{'发送人','时间','内容'}],当save_chat_history设置为True时
     '''
@@ -8966,22 +9190,18 @@ def auto_reply_to_friend(friend:str,duration:str,content:str,save_chat_history:b
     Systemsettings.copy_text_to_windowsclipboard(content)#复制回复内容到剪贴板
     Systemsettings.open_listening_mode(full_volume=False)#开启监听模式,此时电脑只要不断电不会息屏 
     count=0
-    start_time=time.time()  
-    while True:
-        if time.time()-start_time<duration:
-            newMessage,who=Tools.pull_latest_message(chatList)
-            #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
-            #并且最后一条消息的发送者是好友时自动回复
-            #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
-            #刚打开聊天界面时的最后一条消息的话那就一直不回复了
-            if newMessage!=initial_last_message and who==friend:
-                edit_area.click_input()
-                pyautogui.hotkey('ctrl','v',_pause=False)
-                time.sleep(delay)
-                pyautogui.hotkey('alt','s',_pause=False)
-                count+=1
-        else:
-            break
+    end_timestamp=time.time()+duration#根据秒数计算截止时间
+    while time.time()<end_timestamp:
+        newMessage,who=Tools.pull_latest_message(chatList)
+        #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
+        #并且最后一条消息的发送者是好友时自动回复
+        #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
+        #刚打开聊天界面时的最后一条消息的话那就一直不回复了
+        if newMessage!=initial_last_message and who==friend:
+            edit_area.click_input()
+            pyautogui.hotkey('ctrl','v',_pause=False)
+            pyautogui.hotkey('alt','s',_pause=False)
+            count+=1
     if count:
         if save_chat_history:
             chat_history=get_chat_history(friend=friend,number=2*count,capture_screen=capture_screen,folder_path=folder_path,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)  
@@ -8994,14 +9214,14 @@ def tickle_friend(friend:str,maxSearchNum:int=50,search_pages:int=5,wechat_path:
     '''
     该函数用来拍一拍好友\n
     Args:
-        friend:好友备注\n
+        friend:好友备注
         maxSearchNum:主界面找不到好友聊天记录时在聊天记录窗口内查找好友聊天信息时的最大查找次数,默认为20,如果历史信息比较久远,可以更大一些\n
         search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     def find_firend_buttons_in_chatList(chatlist):
         if len(chatlist.children())==0:
@@ -9085,18 +9305,19 @@ def tickle_friend(friend:str,maxSearchNum:int=50,search_pages:int=5,wechat_path:
         chat.close()
 
                          
-def get_friends_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+def get_friends_info(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
     '''
     该函数用来获取通讯录中所有微信好友的基本信息(昵称,备注,微信号),速率约为1秒7-12个好友,注:不包含企业微信好友,\n
-    结果以json格式返回\n
+    结果以list[dict]或该类型的json字符串返回
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。\n
+        close_wechat:任务结束后是否关闭微信,默认关闭\n
     Returns:
-        json格式:[{"昵称":,"备注":,"微信号"}]*n,n为好友总数
+        contacts:[{"昵称":,"备注":,"微信号"}]*n,n为好友总数
     '''
     #获取右侧变化的好友信息面板内的信息
     def get_info():
@@ -9221,25 +9442,27 @@ def get_friends_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:boo
     #转为json格式
     records=zip(nicknames,remarks,wechatnumbers)
     contacts=[{'昵称':name[0],'备注':name[1],'微信号':name[2]} for name in records]
-    contacts_json=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=4)
+    if is_json:
+        contacts=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=2)
     ##############################################################
     pyautogui.press('Home')
     if close_wechat:
         main_window.close()
-    return contacts_json
+    return contacts
 
-def get_friends_detail(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+def get_friends_detail(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
     '''
     该函數用来获取通讯录中所有微信好友的详细信息(昵称,备注,地区，标签,个性签名,共同群聊,微信号,来源),注:不包含企业微信好友,速率约为1秒4-6个好友\n
-    结果以json格式返回\n
+    结果以list[dict]或该类型的json字符串返回
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。\n
+        close_wechat:任务结束后是否关闭微信,默认关闭\n
     Returns:
-        json格式:[{"昵称":,"备注":,'微信号':,'地区':,.....}]*n,n为好友总数
+        contacts:[{"昵称":,"备注":,'微信号':,'地区':,.....}]*n,n为好友总数
     '''
     #获取右侧变化的好友信息面板内的信息
     #从主窗口开始查找
@@ -9662,34 +9885,39 @@ def get_friends_detail(wechat_path:str=None,is_maximize:bool=True,close_wechat:b
     #转为json格式
     records=zip(nicknames,wechatnumbers,regions,remarks,phonenumbers,tags,descrptions,permissions,common_group_nums,signatures,sources)
     contacts=[{'昵称':name[0],'微信号':name[1],'地区':name[2],'备注':name[3],'电话':name[4],'标签':name[5],'描述':name[6],'朋友权限':name[7],'共同群聊':name[8],'个性签名':name[9],'来源':name[10]} for name in records]
-    contacts_json=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=4)#ensure_ascii必须为False
+    if is_json:
+        contacts=json.dumps(contacts,ensure_ascii=False,separators=(',', ':'),indent=2)#ensure_ascii必须为False
     ##############################################################
     pyautogui.press('Home')#回到起始位置,方便下次打开
     if close_wechat:
         main_window.close()
-    return contacts_json
+    return contacts
 
-def get_groups_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+def get_groups_info(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
     '''
     该函数用来获取通讯录中所有群聊的信息(名称,成员数量)\n
-    结果以json格式返回\n
     Args:
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
-        json格式:[{"群聊名称":,"群聊人数":}]*n,n为群聊总数
+        groups_info:[{"群聊名称":,"群聊人数":}]*n,n为群聊总数,每个dict是群聊的信息,包含群名称与人数两个键
     '''
-    contacts_manage_window=Tools.open_contacts_manage(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
-    recent_group_chat=contacts_manage_window.child_window(**Buttons.RectentGroupButton)
-    Lists=contacts_manage_window.descendants(control_type='List',title='')
+    contacts_manage_pane=Tools.open_contacts_manage(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
+    recent_group_chat=contacts_manage_pane.child_window(**Buttons.RectentGroupButton)
+    Lists=contacts_manage_pane.descendants(control_type='List',title='')
     if len(Lists)==2:
         group_chatList=Lists[0]
     if len(Lists)==1:
         recent_group_chat.click_input()
-        group_chatList=contacts_manage_window.child_window(control_type='List',title='',found_index=0)
+        group_chatList=contacts_manage_pane.child_window(control_type='List',title='',found_index=0)
+    group_list=group_chatList.children(control_type='ListItem')
+    if not group_list:
+        contacts_manage_pane.close()
+        raise NoGroupsError
     first_group=group_chatList.children(control_type='ListItem')[0]
     first_group.click_input()
     pyautogui.press('End')
@@ -9699,6 +9927,10 @@ def get_groups_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool
     group_numbers=[]
     selected_item=first_group
     group_name=selected_item.descendants(control_type='Button')[0].window_text()
+    if group_name==last_group_name:
+        group_number=selected_item.descendants(control_type='Text')[1].window_text().replace('(','').replace(')','')
+        group_names.append(group_name)
+        group_numbers.append(group_number)
     while group_name!=last_group_name:
         group_name=selected_item.descendants(control_type='Button')[0].window_text()
         group_number=selected_item.descendants(control_type='Text')[1].window_text().replace('(','').replace(')','')
@@ -9708,154 +9940,80 @@ def get_groups_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool
         selected_item=[item for item in group_chatList.children(control_type='ListItem') if item.is_selected()][0]
     record=zip(group_names,group_numbers)
     groups_info=[{"群聊名称":group[0],"群聊人数":group[1]}for group in record]
-    groups_info_json=json.dumps(groups_info,indent=4,ensure_ascii=False)
-    contacts_manage_window.close()
-    return groups_info_json
+    if is_json:
+        groups_info=json.dumps(groups_info,indent=2,ensure_ascii=False)
+    contacts_manage_pane.close()
+    return groups_info
 
-def get_groupmembers_info(group_name:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+def get_group_members_info(group_name:str,is_json:bool=False,search_pages:int=5,wechat_path=None,is_maximize:bool=True,close_wechat:bool=True):
     '''
-    该函数用来获取某个群聊中所有群成员的群昵称(名称,成员数量)\n
-    结果以列表的json格式返回\n
+    该方法用来获取某个群聊中所有群成员的数量，群昵称,昵称(如果已为好友则为给该好友的备注)\n
+    结果以字典或json格式返回,可通过is_json确定是否返回json对象,json对象便于进行IO读写操作。
     Args:
-        group_name\t:群聊名称或备注\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊名称或备注
+        is_json:返回值类型是否为json,默认为False,此时返回值为字典。
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
-        json格式:{"群聊":,"人数":,'群成员昵称':list[str]}
-    '''
-    def find_group_in_contacts_list(group_name):
-        contacts_list=main_window.child_window(**Main_window.ContactsList)
-        rec=contacts_list.rectangle()  
-        mouse.click(coords=(rec.right-5,rec.top+10))
-        listitems=contacts_list.children(control_type='ListItem')
-        names=[item.window_text() for item in listitems]
-        while group_name not in names:
-            contacts_list=main_window.child_window(**Main_window.ContactsList)
-            listitems=contacts_list.children(control_type='ListItem')
-            names=[item.window_text() for item in listitems]
-            pyautogui.press('down',_pause=False)
-        group=listitems[names.index(group_name)]
-        group_button=group.descendants(control_type='Button',title=group_name)[0]
-        rec=group_button.rectangle()
-        mouse.click(coords=(int(rec.left+rec.right)//2,rec.top-12))
-    def get_info():
-        groupmember_names=[]
-        detail_info_pane=main_window.child_window(title_re=r'.*\(\d+\).*',control_type='Text').parent().parent().children()[1]
-        detail_info=detail_info_pane.descendants(control_type='ListItem')
-        groupmember_names=[element.window_text() for element in detail_info]
-        return groupmember_names
-    GroupSettings.save_group_to_contacts(group_name=group_name,state='open',wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,search_pages=search_pages)
-    main_window=Tools.open_contacts(wechat_path=wechat_path,is_maximize=is_maximize)
-    find_group_in_contacts_list(group_name=group_name)
-    groupmember_names=get_info()
-    GroupSettings.save_group_to_contacts(group_name=group_name,state='close',wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False)
+        info:{"群聊名称":str,"群聊人数":int,'群成员群昵称':list[str],'群成员昵称:list[str]'}
+    ''' 
+    group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
+    showAllButton=group_chat_settings_window.child_window(**Buttons.ShowAllButton)
+    chatList=group_chat_settings_window.child_window(**Lists.ChatList)
+    #Notfriends为新增和移出两个按钮在不同语言下的名称，其在聊天列表中也是ListItem，
+    #当群聊人数少没有查看更多按钮时直接遍历获取window_text
+    #会把这两个东西的名称也包含进去，因此需要筛选一下
+    Notfriends={ListItems.AddListItem['title'],ListItems.RemoveListItem['title']}
+    if showAllButton.exists():
+        #查看更多按钮点击后,新增和移出两个按钮会消失不见
+        showAllButton.click_input()
+        group_members=[listitem for listitem in chatList.children(control_type='ListItem')]
+        group_members_alias=[member.window_text() for member in group_members]
+        group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+    else:
+        group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.window_text() not in Notfriends]
+        group_members_alias=[member.window_text() for member in group_members]
+        group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
+    info={'群聊':group_name,'人数':len(group_members_alias),'群成员群昵称':group_members_alias,'群成员昵称':group_members_nicknames}
     if close_wechat:
         main_window.close()
-    groupmember_json={'群聊':group_name,'人数':len(groupmember_names),'群成员群昵称':groupmember_names}
-    groupmember_json=json.dumps(groupmember_json,ensure_ascii=False,indent=4)
-    return groupmember_json
-    
+    if is_json:
+        return json.dumps(info,ensure_ascii=False,indent=2)
+    return info
 
-def get_chat_history(friend:str,number:int=10,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->str:
+def get_recent_chat_history(friend:str,recent:Literal['Today','Yesterday','Week','Month','Year'],
+    is_json:bool=True,capture_screen:bool=False,
+    folder_path:str=None,search_pages:int=5,wechat_path:str=None,
+    is_maximize:bool=True,close_wechat:bool=True)->list[tuple]|str:    
     '''
-    该函数用来获取好友或群聊的聊天记录,返回值为json\n
+    该函数用来获取好友或群聊最近的的聊天记录,返回值为json
     Args:
-        friend:\t好友或群聊备注或昵称\n
-        number:\t待获取的聊天记录条数,默认10条\n
-        capture_scren:\t聊天记录是否截屏,默认不截屏\n
-        folder_path:\t存放聊天记录截屏图片的文件夹路径\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
-            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
-            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:微信界面是否全屏,默认全屏。\n
-        close_wechat:任务结束后是否关闭微信,默认关闭\n
+        friend:好友或群聊备注或昵称
+        recent:获取最近聊天记录的时间节点,可选值为'Today','Yesterday','Week','Month','Year'分别获取当天,昨天,本周,本月,本年
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        capture_screen:聊天记录是否截屏,默认不截屏
+        folder_path:存放聊天记录截屏图片的文件夹路径
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
-        chat_history_json:格式:[{'发送人','时间','内容'}]*number
+        chat_history:格式:[('发送人','时间','内容')]*number,number为实际聊天记录条数
     '''
-    def parse_message_content(message):
-        message_sender=message.descendants(control_type='Text')[0].window_text()#无论什么类型消息,发送人永远是属性为Texts的UI组件中的第一个
-        message_time=message.descendants(control_type='Text')[1].window_text()#无论什么类型消息.发送时间都是属性为Texts的UI组件中的第二个
-        #至于消息的内容那就需要仔细判断一下了
-        specialMegCN={'[图片]':'图片消息','[视频]':'视频消息','[动画表情]':'动画表情','[视频号]':'视频号'}
-        specialMegEN={'[Photo]':'图片消息','[Video]':'视频消息','[Sticker]':'动画表情','[Channel]':'视频号'}
-        specialMegTC={'[圖片]':'图片消息','[影片]':'视频消息','[動態貼圖]':'动画表情','[影音號]':'视频号'}
-        #不同语言,处理消息内容时不同
-        if language=='简体中文':
-            if message.window_text() in specialMegCN.keys():#内容在特殊消息中
-                message_content=specialMegCN.get(message.window_text())
-            else:#文件,卡片链接,语音,以及正常的文本消息
-                if message.window_text()=='[文件]':
-                    filename=message.descendants(control_type='Text')[2].texts()[0]
-                    message_content=f'文件:{filename}'
-                elif re.match(r'\[语音\]\d+秒',message.window_text()):
-                    message_content='语音消息'
-                elif len(message.descendants(control_type='Text'))>3:#
-                    cardContent=message.descendants(control_type='Text')[2:]
-                    cardContent=[link.window_text() for link in cardContent]
-                    if '微信转账' in cardContent:
-                        index=cardContent.index('微信转账')
-                        message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                    else:
-                        message_content='卡片内容:'+','.join(cardContent)
-                else:#正常文本
-                    texts=message.descendants(control_type='Text')
-                    texts=[text.window_text() for text in texts]
-                    message_content=texts[2]
-                
-        if language=='英文':
-            if message.window_text() in specialMegEN.keys():
-                message_content=specialMegEN.get(message.window_text())
-            else:#文件,卡片链接,语音,以及正常的文本消息
-                if message.window_text()=='[File]':
-                    filename=message.descendants(control_type='Text')[2].texts()[0]
-                    message_content=f'文件:{filename}'
-                elif re.match(r'\[Audio\]\d+s',message.window_text()):
-                    message_content='语音消息'
-
-                elif len(message.descendants(control_type='Text'))>3:#
-                    cardContent=message.descendants(control_type='Text')[2:]
-                    cardContent=[link.window_text() for link in cardContent]
-                    if 'Weixin Transfer' in cardContent:
-                        index=cardContent.index('Weixin Transfer')
-                        message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                    else:
-                        message_content='卡片内容:'+','.join(cardContent)
-                else:#正常文本
-                    texts=message.descendants(control_type='Text')
-                    texts=[text.window_text() for text in texts]
-                    message_content=texts[2]
-        
-        if language=='繁体中文':
-            if message.window_text() in specialMegTC.keys():
-                message_content=specialMegTC.get(message.window_text())
-            else:#文件,卡片链接,语音,以及正常的文本消息
-                if message.window_text()=='[檔案]':
-                    filename=message.descendants(control_type='Text')[2].texts()[0]
-                    message_content=f'文件:{filename}'
-                elif re.match(r'\[語音\]\d+秒',message.window_text()):
-                    message_content='语音消息'
-                elif len(message.descendants(control_type='Text'))>3:#
-                    cardContent=message.descendants(control_type='Text')[2:]
-                    cardContent=[link.window_text() for link in cardContent]
-                    if message.window_text()=='' and '微信轉賬' in cardContent:
-                        index=cardContent.index('微信轉賬')
-                        message_content=f'微信转账:{cardContent[index-2]}:{cardContent[index-1]}'
-                    else:
-                        message_content='链接卡片内容:'+','.join(cardContent)
-                else:#正常文本
-                    texts=message.descendants(control_type='Text')
-                    texts=[text.window_text() for text in texts]
-                    message_content=texts[2]
-
-        return message_sender,message_time,message_content
-    
-    def ByNum():
-        #根据数量来获取聊天记录,后序还会增加一个ByDate
+    def ByDate():
+        chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
+        at_top=False
+        thismonth='/'+str(int(time.strftime('%m')))+'/'#当月
+        thisyear=str(int(time.strftime('%y')))+'/'#去年
+        lastmonth='/'+str(int(time.strftime('%m'))-1)+'/'#上个月
+        lastyear=str(int(time.strftime('%y'))-1)+'/'#去年
+        yesterday='Yesterday' if language=='英文' else '昨天' 
         rec=chat_history_window.rectangle()
         mouse.click(coords=(rec.right-10,rec.bottom-10))
         pyautogui.press('End')
@@ -9863,8 +10021,155 @@ def get_chat_history(friend:str,number:int=10,capture_screen:bool=False,folder_p
         contentList=chat_history_window.child_window(**Lists.ChatHistoryList)
         if not contentList.exists():    
             chat_history_window.close()
+            if Systemsettings.is_empty_folder(folder_path) and temp:
+                os.removedirs(folder_path)
             raise NoChatHistoryError(f'你还未与{friend}聊天,无法获取聊天记录!')  
         selected_items=[] #selected_items用来存放向上遍历过程中选中的聊天记录          
+        last_item=contentList.children(control_type='ListItem')[-1]
+        last_time=Tools.parse_chat_history(last_item)[1]
+        if '/' in last_time and recent in recent_modes[:3]:
+            print(f'最近的一条聊天记录时间为{last_time},本周无聊天记录!')
+        elif '/' in last_time and recent in recent_modes[:3] and thisyear not in last_time:
+            print(f'最近的一条聊天记录时间为{last_time},本年内无聊天记录!')
+        elif '/' in last_time and recent=='Month' and thisyear in last_time and thismonth not in last_time:
+            print(f'最近的一条聊天记录时间为{last_time},本月无聊天记录!')
+        else:
+            #点击最后一条聊天记录
+            rec=last_item.rectangle()
+            #注意不能直接click_input,要点击最右边，click_input默认点击中间
+            #如果是视频或者链接,直接就打开了，无法继续向上遍历
+            mouse.click(coords=(rec.right-30,rec.bottom-20))
+            if recent!='Yesterday':
+                while True:     
+                    pyautogui.press('up',_pause=False,presses=2)
+                    selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                    selected_items.append(selected_item)
+                    parse_result=Tools.parse_chat_history(selected_item)
+                    if recent=='Year' and lastyear in parse_result[1]:
+                        break
+                    if recent=='Month' and lastmonth in parse_result[1]:
+                        break
+                    if recent=='Week' and '/' in parse_result[1]:
+                        break
+                    if recent=='Today' and ':' not in parse_result[1]:
+                        break
+                    if len(selected_items)>2 and selected_item==selected_items[-2]:
+                        at_top=True
+                        break
+                    chat_history.append(parse_result)
+                if at_top:
+                    print(f'你与{friend}的聊天记录已包含全部,无法获取更多！')
+            if recent=='Yesterday':
+                no_yesterday=False
+                while True:
+                    pyautogui.press('up',_pause=False,presses=2)
+                    selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                    selected_items.append(selected_item)
+                    parse_result=Tools.parse_chat_history(selected_item)
+                    if yesterday in parse_result[1]:
+                        chat_history.append(parse_result)
+                        break
+                    if '/' in parse_result[1]:
+                        no_yesterday=True
+                        break
+                    if '/' not in parse_result[1] and ':' not in parse_result[1] and yesterday not in parse_result[1]:
+                        no_yesterday=True
+                        break
+                if not no_yesterday:    
+                    while True:
+                        pyautogui.press('up',_pause=False,presses=2)
+                        selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
+                        selected_items.append(selected_item)
+                        parse_result=Tools.parse_chat_history(selected_item)
+                        chat_history.append(parse_result)
+                        if yesterday not in parse_result[1]:
+                            break
+                if no_yesterday:
+                    print('昨天并无聊天记录,无法获取!')
+            pyautogui.press('END')
+            if capture_screen and chat_history:
+                mouse.click(coords=(rec.right-30,rec.bottom-20))
+                Num=1
+                length=len(contentList.children(control_type='ListItem'))
+                while length<len(selected_items):
+                    chat_history_image=chat_history_window.capture_as_image()
+                    if folder_path:
+                        pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
+                    else:
+                        pic_path=os.path.abspath(os.path.join(os.getcwd(),f'与{friend}的聊天记录{Num}.png'))
+                    chat_history_image.save(pic_path)
+                    pyautogui.keyDown('pageup',_pause=False)
+                    Num+=1
+                    length+=len(contentList.children(control_type='ListItem'))
+                #退出循环后还要记得截最后一张图片
+                chat_history_image=chat_history_window.capture_as_image()
+                pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
+                chat_history_image.save(pic_path)
+                pyautogui.press('END')
+                print(f'共保存聊天记录截图{Num}张')
+        chat_history_window.close()
+        if is_json:
+            chat_history=json.dumps(chat_history,ensure_ascii=False,indent=2)
+        if Systemsettings.is_empty_folder(folder_path) and temp:
+            os.removedirs(folder_path)
+        return chat_history
+    temp=False
+    recent_modes=['Today','Yesterday','Week','Month','Year']
+    if recent not in recent_modes:
+        raise WrongParameterError('recent取值错误!')
+    if capture_screen and not folder_path:
+        folder_name=f'{friend}聊天记录截图'
+        folder_path=os.path.join(os.getcwd(),folder_name)
+        os.makedirs(folder_path,exist_ok=True)
+        temp=True
+    if capture_screen and folder_path:
+        if not os.path.isdir(folder_path):
+            raise NotFolderError(r'给定路径不是文件夹!无法保存聊天记录截图,请重新选择文件夹！')
+    chat_history=ByDate()
+    return chat_history
+    
+def get_chat_history(
+    friend:str,number:int,is_json:bool=True,
+    capture_screen:bool=False,folder_path:str=None,
+    search_pages:int=5,wechat_path:str=None,
+    is_maximize:bool=True,close_wechat:bool=True)->(list[tuple]|str):
+    '''
+    该函数用来获取好友或群聊指定数量的聊天记录,返回值为json或list[tuple]
+    Args:
+        friend:好友或群聊备注或昵称
+        number:待获取的聊天记录条数
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        capture_scren:聊天记录是否截屏,默认不截屏
+        folder_path:存放聊天记录截屏图片的文件夹路径
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
+    Returns:
+        chat_history:格式:[('发送人','时间','内容')]*number,number为实际聊天记录条数
+    '''    
+    def ByNum():
+        #根据数量来获取聊天记录,后序还会增加一个ByDate
+        chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
+        rec=chat_history_window.rectangle()
+        mouse.click(coords=(rec.right-10,rec.bottom-10))
+        pyautogui.press('End')
+        chat_history=[]
+        contentList=chat_history_window.child_window(**Lists.ChatHistoryList)
+        if not contentList.exists():    
+            chat_history_window.close()
+            if Systemsettings.is_empty_folder(folder_path) and temp:
+                os.removedirs(folder_path)
+            raise NoChatHistoryError(f'你还未与{friend}聊天,无法获取聊天记录!')  
+        selected_items=[] #selected_items用来存放向上遍历过程中选中的聊天记录          
+        last_item=contentList.children(control_type='ListItem')[-1]
+        #点击最后一条聊天记录
+        rec=last_item.rectangle()
+        #注意不能直接click_input,要点击最右边，click_input默认点击中间
+        #如果是视频或者链接,直接就打开了，无法继续向上遍历
+        mouse.click(coords=(rec.right-30,rec.bottom-20))
         for _ in range(number):
             pyautogui.press('up',_pause=False,presses=2)
             selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
@@ -9875,7 +10180,7 @@ def get_chat_history(friend:str,number:int=10,capture_screen:bool=False,folder_p
             #也就是当前selected_item在selected_items的倒数第二个时，就可以直接退出了，当然，必须得保证selected_items大于2
             if len(selected_items)>2 and selected_item==selected_items[-2]:
                 break
-            chat_history.append(parse_message_content(selected_item))
+            chat_history.append(Tools.parse_chat_history(selected_item))
             ############################################
         pyautogui.press('END')
         ###############################################################
@@ -9883,14 +10188,12 @@ def get_chat_history(friend:str,number:int=10,capture_screen:bool=False,folder_p
         #selected_items最多也就是所有的聊天记录
         #length是向上时每一页的聊天记录数量，比较一下length是否达到selected_items内的聊天记录数量，如果达到那么不再截取每一页的图片
         if capture_screen:
+            mouse.click(coords=(rec.right-30,rec.bottom-20))
             Num=1
             length=len(contentList.children(control_type='ListItem'))
             while length<len(selected_items):
                 chat_history_image=chat_history_window.capture_as_image()
-                if folder_path:
-                    pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
-                else:
-                    pic_path=os.path.abspath(os.path.join(os.getcwd(),f'与{friend}的聊天记录{Num}.png'))
+                pic_path=os.path.abspath(os.path.join(folder_path,f'与{friend}的聊天记录{Num}.png'))
                 chat_history_image.save(pic_path)
                 pyautogui.keyDown('pageup',_pause=False)
                 Num+=1
@@ -9907,35 +10210,36 @@ def get_chat_history(friend:str,number:int=10,capture_screen:bool=False,folder_p
         chat_history_window.close()
         if len(chat_history)<number:
             warn(message=f"你与{friend}的聊天记录不足{number},已为你导出全部的{len(chat_history)}条聊天记录",category=ChatHistoryNotEnough)
-            chat_history_json=json.dumps(chat_history,ensure_ascii=False,indent=4)
-        else:
-            chat_history_json=json.dumps(chat_history[:number],ensure_ascii=False,indent=4)
-        return chat_history_json
-    
+        if is_json:
+            chat_history=json.dumps(chat_history,ensure_ascii=False,indent=2)
+        return chat_history
+    temp=False
+    if capture_screen and not folder_path:
+        folder_name=f'{friend}聊天记录截图'
+        folder_path=os.path.join(os.getcwd(),folder_name)
+        os.makedirs(folder_path,exist_ok=True)
+        temp=True
     if capture_screen and folder_path:
-        folder_path=re.sub(r'(?<!\\)\\(?!\\)',r'\\\\',folder_path)
         if not os.path.isdir(folder_path):
             raise NotFolderError(r'给定路径不是文件夹!无法保存聊天记录截图,请重新选择文件夹！')
-    chat_history_window=Tools.open_chat_history(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,search_pages=search_pages)[0]
-    chat_history_json=ByNum()
+    chat_history=ByNum()        
     ########################################################################
-    return chat_history_json
-
+    return chat_history
 
 def check_new_message(duration:str=None,save_file:bool=False,target_folder:str=None,wechat_path:str=None,close_wechat:bool=True)->list[dict]:
     '''
     该函数用来查看新消息,若传入了duration参数,那么可以用来持续监听会话列表内所有人的新消息\n
     注意,为了更好监听新消息,需要开启文件传输助手功能,因为该方法需要切换聊天界面至文件传输助手\n
     该函数无法监听当前界面内的新消息,如果需要,建议使用listen_on_chat函数\n
-    传入duration后如出现停顿此为正常等待机制:因为该方法会等到时间结束后再查找新消息\n
+    传入duration后如出现停顿此为正常等待机制:因为该方法会等到时间结束后再查找新消息
     Args:
-        duration:\t监听消息持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
-        save_file:\t是否保存聊天文件,默认为False\n
-        target_folder:\t聊天文件保存路径,需要是文件夹,如果save_file为True,未传入该参数,则会自动在当前路径下创建一个文件夹来保存聊天文件\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        duration:监听消息持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时
+        save_file:是否保存聊天文件,默认为False
+        target_folder:聊天文件保存路径,需要是文件夹,如果save_file为True,未传入该参数,则会自动在当前路径下创建一个文件夹来保存聊天文件\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
         newMessages:新消息列表,格式:[{'好友名称':'好友备注','新消息条数',25:'好友类型':'群聊or好友or公众号','消息内容':[str],'消息类型':[str]}]\n
     '''
@@ -10134,10 +10438,9 @@ def check_new_message(duration:str=None,save_file:bool=False,target_folder:str=N
             if not duration:#不是指定形式的duration报错
                 main_window.close()
                 raise TimeNotCorrectError
-            start_time=time.time()
-            while True:#一直等待直到时间差超过durtation
-                if time.time()-start_time>=duration:
-                    break
+            end_timestamp=time.time()+duration#根据秒数计算截止时间
+            while time.time()<end_timestamp:#一直等截止时间
+                break
             if not chatsButton.legacy_properties().get('Value'):#文件传输助手界面原地等待duration后如果侧边栏的消息按钮还是没有红色消息提示直接返回未查找到新消息
                 if close_wechat:
                     main_window.close()
@@ -10165,10 +10468,9 @@ def check_new_message(duration:str=None,save_file:bool=False,target_folder:str=N
                 main_window.close()
                 raise TimeNotCorrectError
             Systemsettings.open_listening_mode(full_volume=False)
-            start_time=time.time()
-            while True:#y一直原地等待,直到时间差超过duration
-                if time.time()-start_time>=duration:
-                    break
+            end_timestamp=time.time()+duration#根据秒数计算截止时间
+            while time.time()<end_timestamp:#一直等截止时间
+                break
             if not chatsButton.legacy_properties().get('Value'):
                 if close_wechat:
                     main_window.close()
@@ -10200,41 +10502,25 @@ def check_new_message(duration:str=None,save_file:bool=False,target_folder:str=N
                 main_window.close()
             return newMessages
 
-def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max_pages:int=5,never_reply:list=[],scroll_delay:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->None:
+def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max_pages:int=5,never_reply:list=[],scroll_delay:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来遍历会话列表查找新消息自动回复,最大回复数量=max_pages*(8~10)\n
     如果你不想回复某些好友,你可以临时将其设为消息免打扰,或传入\n
-    一个包含不回复好友或群聊的昵称列表never_reply\n
+    一个包含不回复好友或群聊的昵称列表never_reply
     Args:
-        content:\t自动回复内容\n
-        duration:\t自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
-        dontReplytoGroup:\t不回复群聊(即使有新消息也不回复)\n
-        max_pages:\t遍历会话列表页数,一页为8~10人,设定持续时间后,将持续在max_pages内循环遍历查找是否有新消息\n
-        never_reply:\t在never_reply列表中的好友即使有新消息时也不会回复\n
-        scroll_delay:\t滚动遍历max_pages页会话列表后暂停秒数,如果你的max_pages很大,且持续时间长,scroll_delay还为0的话,那么一直滚动遍历有可能被微信检测到自动退出登录\n
-               该参数只在会话列表可以滚动的情况下生效\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        content:自动回复内容
+        duration:自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时
+        dontReplytoGroup:不回复群聊(即使有新消息也不回复)
+        max_pages:遍历会话列表页数,一页为8~10人,设定持续时间后,将持续在max_pages内循环遍历查找是否有新消息
+        never_reply:在never_reply列表中的好友即使有新消息时也不会回复
+        scroll_delay:滚动遍历max_pages页会话列表后暂停秒数,如果你的max_pages很大,且持续时间长,scroll_delay还为0的话,那么一直滚动遍历有可能被微信检测到自动退出登录\n
+               该参数只在会话列表可以滚动的情况下生效
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
-    if language=='简体中文':
-        taboo_list=['微信团队','微信支付','微信运动','订阅号','腾讯新闻','服务通知','微信游戏']
-    if language=='繁体中文':
-        taboo_list=['微信团队','微信支付','微信运动','訂閱賬號','騰訊新聞','服務通知','微信游戏']
-    if language=='英文':
-        taboo_list=['微信团队','微信支付','微信运动','Subscriptions','Tencent News','Service Notifications','微信游戏']
-    taboo_list.extend(never_reply)
-    responsed_friend=set()
-    responsed_groups=set()
-    unresponsed_group=set()
-    unchanged_duration=duration
-    duration=match_duration(duration)
-    if not duration:
-        raise TimeNotCorrectError
-    Systemsettings.open_listening_mode(full_volume=False)
-    Systemsettings.copy_text_to_windowsclipboard(content)
     def record():
         #遍历当前会话列表内的所有成员，获取他们的名称，没有新消息的话返回[]
         #newMessagefriends为会话列表(List)中所有含有新消息的ListItem
@@ -10263,7 +10549,6 @@ def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max
             if who==current_chat.window_text() and latest_message!=initial_last_message:#不等于刚打开页面时的那条消息且发送者是对方
                 current_chat.click_input()
                 pyautogui.hotkey('ctrl','v',_pause=False)
-                time.sleep(delay)
                 pyautogui.hotkey('alt','s',_pause=False)
                 responsed_friend.add(current_chat.window_text())
                 if scorllable:
@@ -10274,7 +10559,6 @@ def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max
                 if not dontReplytoGroup:
                     current_chat.click_input()
                     pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
                     pyautogui.hotkey('alt','s',_pause=False)
                     responsed_friend.add(current_chat.window_text())
                     responsed_groups.add(current_chat.window_text())
@@ -10302,14 +10586,12 @@ def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max
                     current_chat=main_window.child_window(**Main_window.CurrentChatWindow)
                     current_chat.click_input()
                     pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
                     pyautogui.hotkey('alt','s',_pause=False)
                     responsed_friend.add(name) 
                 if type=='群聊' and not dontReplytoGroup:
                         current_chat=main_window.child_window(**Main_window.CurrentChatWindow)
                         current_chat.click_input()
                         pyautogui.hotkey('ctrl','v',_pause=False)
-                        time.sleep(delay)
                         pyautogui.hotkey('alt','s',_pause=False)
                         responsed_friend.add(name)
                         responsed_groups.add(name)
@@ -10317,7 +10599,23 @@ def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max
                     unresponsed_group.add(name)
             if scorllable:
                 mouse.click(coords=(x,y))#回复完成后点击右上方,激活滑块，继续遍历会话列表
-
+    if language=='简体中文':
+        taboo_list=['微信团队','微信支付','微信运动','订阅号','腾讯新闻','服务通知','微信游戏']
+    if language=='繁体中文':
+        taboo_list=['微信团队','微信支付','微信运动','訂閱賬號','騰訊新聞','服務通知','微信游戏']
+    if language=='英文':
+        taboo_list=['微信团队','微信支付','微信运动','Subscriptions','Tencent News','Service Notifications','微信游戏']
+    taboo_list.extend(never_reply)
+    responsed_friend=set()
+    responsed_groups=set()
+    unresponsed_group=set()
+    unchanged_duration=duration
+    duration=match_duration(duration)
+    if not duration:
+        raise TimeNotCorrectError
+    end_timestamp=time.time()+duration#根据秒数计算截止时间
+    Systemsettings.open_listening_mode(full_volume=False)
+    Systemsettings.copy_text_to_windowsclipboard(content)
     main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
     chat_button=main_window.child_window(**SideBar.Chats)
     chat_button.click_input()
@@ -10331,9 +10629,8 @@ def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max
         mouse.click(coords=(x,y))#点击右上方激活滑块
         pyautogui.press('Home')#按下Home健确保从顶部开始
     search_pages=1
-    start_time=time.time()
     chatsButton=main_window.child_window(**SideBar.Chats)
-    while time.time()-start_time<=duration:
+    while time.time()<end_timestamp:
         if chatsButton.legacy_properties().get('Value'):#如果左侧的聊天按钮式红色的就遍历,否则原地等待
             if scorllable:
                 for _ in range(max_pages+1):
@@ -10359,19 +10656,19 @@ def auto_reply_messages(content:str,duration:str,dontReplytoGroup:bool=False,max
     if close_wechat:
         main_window.close()
 
-def AI_auto_reply_to_friend(friend:str,duration:str,AI_engine,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->None:
+def AI_auto_reply_to_friend(friend:str,duration:str,AI_engine,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来接入AI大模型自动回复好友消息\n
+    该函数用来接入AI大模型自动回复好友消息
     Args:
-        friend:\t好友或群聊备注\n
-        duration:\t自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
-        Ai_engine:\t调用的AI大模型API函数,去各个大模型官网找就可以\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        duration:自动回复持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时
+        Ai_engine:调用的AI大模型API函数,去各个大模型官网找就可以
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     if save_chat_history and capture_screen and folder_path:#需要保存自动回复后的聊天记录截图时，可以传入一个自定义文件夹路径，不然保存在运行该函数的代码所在文件夹下
         #当给定的文件夹路径下的内容不是一个文件夹时
@@ -10399,32 +10696,27 @@ def AI_auto_reply_to_friend(friend:str,duration:str,AI_engine,save_chat_history:
     initial_last_message=Tools.pull_latest_message(chatList)[0]#刚打开聊天界面时的最后一条消息的listitem   
     Systemsettings.open_listening_mode(full_volume=False)#开启监听模式,此时电脑只要不断电不会息屏 
     count=0
-    start_time=time.time()  
-    while True:
-        if time.time()-start_time<duration:
-            newMessage,who=Tools.pull_latest_message(chatList)
-            #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
-            #并且最后一条消息的发送者是好友时自动回复
-            #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
-            #刚打开聊天界面时的最后一条消息的话那就一直不回复了
-            if type=='好友':
-                if newMessage!=initial_last_message and who==friend:
-                    edit_area.click_input()
-                    Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
-                    pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
-                    pyautogui.hotkey('alt','s',_pause=False)
-                    count+=1  
-            if type=='群聊':
-                if newMessage!=initial_last_message and who!=myname:
-                    edit_area.click_input()
-                    Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
-                    pyautogui.hotkey('ctrl','v',_pause=False)
-                    time.sleep(delay)
-                    pyautogui.hotkey('alt','s',_pause=False)
-                    count+=1
-        else:
-            break
+    end_timestamp=time.time()+duration#根据秒数计算截止时间
+    while time.time()<end_timestamp:
+        newMessage,who=Tools.pull_latest_message(chatList)
+        #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)
+        #并且最后一条消息的发送者是好友时自动回复
+        #这里我们判断的是两条消息(listitem)是否相等,不是文本是否相等,要是文本相等的话,对方一直重复发送
+        #刚打开聊天界面时的最后一条消息的话那就一直不回复了
+        if type=='好友':
+            if newMessage!=initial_last_message and who==friend:
+                edit_area.click_input()
+                Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
+                pyautogui.hotkey('ctrl','v',_pause=False)
+                pyautogui.hotkey('alt','s',_pause=False)
+                count+=1  
+        if type=='群聊':
+            if newMessage!=initial_last_message and who!=myname:
+                edit_area.click_input()
+                Systemsettings.copy_text_to_windowsclipboard(AI_engine(newMessage))#复制回复内容到剪贴板
+                pyautogui.hotkey('ctrl','v',_pause=False)
+                pyautogui.hotkey('alt','s',_pause=False)
+                count+=1
     if count:
         if save_chat_history:
             chat_history=get_chat_history(friend=friend,number=2*count,capture_screen=capture_screen,folder_path=folder_path,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)  
@@ -10436,14 +10728,14 @@ def AI_auto_reply_to_friend(friend:str,duration:str,AI_engine,save_chat_history:
 
 def Change_Language(lang:int=0,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来PC微信修改语言。\n
+    该函数用来PC微信修改语言。
     Args:
-        lang:\t语言名称,只支持简体中文,English,繁体中文,使用0,1,2表示。\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        lang:语言名称,只支持简体中文,English,繁体中文,使用0,1,2表示。\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。\n
+        close_wechat:任务结束后是否关闭微信,默认关闭\n
     '''
     language_map={0:'简体中文',1:'英文',2:'繁体中文'}
     if lang not in language_map.keys():
@@ -10468,29 +10760,29 @@ def Change_Language(lang:int=0,wechat_path:str=None,is_maximize:bool=True,close_
     confirm_button=settings.child_window(**Buttons.ConfirmButton)
     confirm_button.click_input()
 
-def listen_on_chat(friend:str,duration:str,save_file:bool=True,save_media:bool=True,save_method:int=0,file_folder:str=None,media_folder:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->tuple[list[str],list[str],list[str]]:
+def listen_on_chat(friend:str,duration:str,save_file:bool=False,save_media:bool=False,save_method:int=0,file_folder:str=None,media_folder:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->tuple[list[str],list[str],list[str]]:
     '''
     该函数用来持续监听某个聊天窗口内的消息,如果有新文件或图片则将自动将其保存到指定的文件夹内。\n
     Args:
-        friend:\t好友或群聊备注\n
-        duration:\t监听持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时\n
-        save_file:\t是否保存监听过程中的文件,默认保存\n
-        save_media:\t是否保存监听过程中的图片与视频,默认保存\n
-        save_method:\t保存图片的方式,取值为0或1,0为截屏,1为点击图片另存为,默认截屏,截屏快一点,另存为图片质量高\n
-        file_folder:\t保存聊天记录的文件夹路径,如果不传入则保存在当前运行代码所在的文件夹下\n
-        meida_folder:\t保存图片和视频的文件夹路径,如果不传入则保存在当前运行代码所在的文件夹下\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        duration:监听持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时
+        save_file:是否保存监听过程中的文件,默认False不保存
+        save_media:是否保存监听过程中的图片与视频,默认False不保存
+        save_method:保存图片的方式,取值为0或1,0为截屏,1为点击图片另存为,默认截屏,截屏快一点,另存为图片质量高\n
+        file_folder:保存聊天记录的文件夹路径,如果不传入则保存在当前运行代码所在的文件夹下\n
+        meida_folder:保存图片和视频的文件夹路径,如果不传入则保存在当前运行代码所在的文件夹下\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
         (message_contents,message_senders,message_types):\n消息内容,消息发送对象,消息类型
     Examples:
         ```
         from pywechat import listen_on_chat
-        contents,senders,types=listen_on_chat(friend='测试群',duration='10min',file_folder=r"E:\Desktop\保存文件",media_folder=r"E:\Desktop\图片视频保存")
+        contents,senders,types=listen_on_chat(friend='测试群',duration='10min',file_folder=r"E:\保存文件",media_folder=r"E:\图片视频保存")
         ```
     Returns:
         (message_contents,message_senders,message_types):(消息内容,消息发送者,消息类型)
@@ -10500,11 +10792,11 @@ def listen_on_chat(friend:str,duration:str,save_file:bool=True,save_media:bool=T
     if not duration:#不按照指定的时间格式输入,需要提前中断退出
         raise TimeNotCorrectError
     if not file_folder and save_file:#filefolder没有输入默认为None且save_file为True那么就保存到本地的一个文件夹
-        os.makedirs(name='listen_on_chat聊天文件自动保存',exist_ok=True)
-        file_folder=os.path.join(os.getcwd(),'listen_on_chat聊天文件自动保存')
+        os.makedirs(name=f'listen_on_chat-{friend}-聊天文件自动保存',exist_ok=True)
+        file_folder=os.path.join(os.getcwd(),f'listen_on_chat-{friend}-聊天文件自动保存')
     if not media_folder and save_media:#photo_folder没有输入默认为None且save_meida为True那么就保存到本地的一个文件夹
-        os.makedirs(name='listen_on_chat聊天图片视频自动保存',exist_ok=True)
-        media_folder=os.path.join(os.getcwd(),'listen_on_chat聊天图片视频自动保存')
+        os.makedirs(name=f'listen_on_chat-{friend}-聊天图片视频自动保存',exist_ok=True)
+        media_folder=os.path.join(os.getcwd(),f'listen_on_chat-{friend}-聊天图片视频自动保存')
     if file_folder and  not os.path.isdir(file_folder):#输入了file_folder但不是文件夹,报错
         raise NotFolderError
     if media_folder and  not os.path.isdir(media_folder):#输入了photo_folder但不是文件夹,报错
@@ -10537,45 +10829,44 @@ def listen_on_chat(friend:str,duration:str,save_file:bool=True,save_media:bool=T
     initialMessages=Tools.pull_messages(friend=friend,number=5,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
     recorded.extend(initialMessages)
     Systemsettings.open_listening_mode(full_volume=False)
-    start_time=time.time() 
-    while True:
-        if time.time()-start_time<duration:
-            newMessages=Tools.pull_messages(friend=friend,number=5,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
-            #newMessages,newSenders,newMessageTypes=Tools.pull_messages(friend=friend,number=5,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False)
-            #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)并且最后一条消息的发送者是好友时再记录
-            if friendtype=='好友':
-                for newMessage in newMessages:
-                    if newMessage not in recorded:
-                        message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype=friendtype)
-                        message_contents.append(message_content)
-                        message_senders.append(message_sender)
-                        message_types.append(message_type)
-                        if message_type=='文件':
-                            filelist.add(os.path.join(chatfile_folder,timestamp,message_content))
-                        if message_type=='图片':
-                            photo_num+=1
-                        if message_type=='视频':
-                            video_num+=1
-                        recorded.append(newMessage)
-            if friendtype=='群聊':
-                for newMessage in newMessages:
-                    if newMessage not in recorded:
-                        message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype=friendtype)
-                        message_contents.append(message_content)
-                        message_senders.append(message_sender)
-                        message_types.append(message_type)
-                        if message_type=='文件':
-                            filelist.add(os.path.join(chatfile_folder,timestamp,message_content))
-                        if message_type=='图片':
-                            photo_num+=1
-                        if message_type=='视频':
-                            video_num+=1
-                        recorded.append(newMessage)
-        else:
-            break
+    end_timestamp=time.time()+duration#根据秒数计算截止时间
+    while time.time()<end_timestamp:
+        newMessages=Tools.pull_messages(friend=friend,number=5,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
+        #newMessages,newSenders,newMessageTypes=Tools.pull_messages(friend=friend,number=5,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False)
+        #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后一条消息(listitem)并且最后一条消息的发送者是好友时再记录
+        if friendtype=='好友':
+            for newMessage in newMessages:
+                if newMessage not in recorded:
+                    message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype=friendtype)
+                    message_contents.append(message_content)
+                    message_senders.append(message_sender)
+                    message_types.append(message_type)
+                    if message_type=='文件':
+                        filelist.add(os.path.join(chatfile_folder,timestamp,message_content))
+                    if message_type=='图片':
+                        photo_num+=1
+                    if message_type=='视频':
+                        video_num+=1
+                    recorded.append(newMessage)
+        if friendtype=='群聊':
+            for newMessage in newMessages:
+                if newMessage not in recorded:
+                    message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype=friendtype)
+                    message_contents.append(message_content)
+                    message_senders.append(message_sender)
+                    message_types.append(message_type)
+                    if message_type=='文件':
+                        filelist.add(os.path.join(chatfile_folder,timestamp,message_content))
+                    if message_type=='图片':
+                        photo_num+=1
+                    if message_type=='视频':
+                        video_num+=1
+                    recorded.append(newMessage)
     if save_file and filelist:
         Systemsettings.copy_files(filelist,target_folder=file_folder)
         print(f'监听{unchanged_duration}内,已自动保存文件{len(filelist)}个')
+    if save_file and not filelist:
+        os.removedirs(file_folder)
     if save_media and photo_num:
         save_photos(friend=friend,number=photo_num,folder_path=media_folder,save_method=save_method,is_maximize=is_maximize,search_pages=search_pages,close_wechat=close_wechat,wechat_path=wechat_path)
         print(f'监听{unchanged_duration}内,已自动保存图片{photo_num}张')
@@ -10591,21 +10882,21 @@ def save_files(friend:str,folder_path:str=None,number:int=10,search_pages:int=5,
     '''
     该函数用来保存与某个好友或群聊的聊天文件到指定文件夹中,如果有重复的文件,也会一并全部保存,所以可能实际保存文件要多余给定number\n
     Args:
-        friend:\t好友或群聊备注\n
-        number:\t需要保存的文件数量,默认为10,如果聊天记录中没有那么多文件,则会保存所有的文件\n
-        folder_path:\t保存聊天记录的文件夹路径,如果不传入则默认保存在当前运行代码所在的文件夹下\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        number:需要保存的文件数量,默认为10,如果聊天记录中没有那么多文件,则会保存所有的文件
+        folder_path:保存聊天记录的文件夹路径,如果不传入则默认保存在当前运行代码所在的文件夹下
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
              尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
              传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Returns:
         filenames:所有已经保存到指定文件夹内的文件名
     Examples:
         ```
         from pywechat import save_files
-        folder_path=r'E:\Desktop\新建文件夹'
+        folder_path=r'E:\新建文件夹'
         save_files(friend='测试群',number=20,folder_path=folder_path)
         ```
     '''
@@ -10627,7 +10918,7 @@ def save_files(friend:str,folder_path:str=None,number:int=10,search_pages:int=5,
         filename=ListItem.window_text()#ListItem的名称就是文件名
         timestamp=time.strftime("%Y-%m")#默认是在当年当月
         #今天,明天,星期x统一都属于当月
-        #简体中文宇繁体中文都是一样的
+        #简体中文与繁体中文都是一样的
         current_month=['今天','昨天','星期一','星期二','星期三','星期四','星期五','星期天']
         if language=='英文':
             current_month=['Today','Yesterday','Monday','Tuesday','Wednesday','Thursday','Friday','Sunday']
@@ -10660,6 +10951,9 @@ def save_files(friend:str,folder_path:str=None,number:int=10,search_pages:int=5,
     x,y=fileList.rectangle().right-8,fileList.rectangle().top+5
     mouse.click(coords=(x,y))
     pyautogui.press('Home')#回到最顶部
+    # #点击一下第一个，确保使其处于选中状态
+    rec=fileList.children(control_type='ListItem')[0].rectangle()
+    mouse.click(coords=(rec.right-30,rec.bottom-10))
     filepaths=[]
     filenames=[]
     selected_items=[]
@@ -10703,32 +10997,57 @@ def save_files(friend:str,folder_path:str=None,number:int=10,search_pages:int=5,
 
 def at(group_name:str,group_member:str,is_send:bool=False,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
-    该函数用来在群聊中@好友,需要注意的是PC微信仅支持群聊@,且该函数主要用来配合send_message类方法使用\n
+    该函数用来在群聊中@好友,主要用来配合send_message等方法使用\n
     默认不直接发送@消息,如果需要单纯地发送一个@好友的消息\n
-    需要将is_send设置为True\n
+    需要将is_send设置为True,如果好友群昵称中含有emoji字符会使用emoji库去除,然后使用剩余的纯文本查找\n
+    这里建议@群聊中已添加的好友时,group_member设置为好友备注\n
+    因为微信的@列表显示群内成员时,对于已添加好友不显示群昵称而显示备注
     Args:
-        group_name:\t群聊备注\n
-        group_member:\t群成员在群聊中的昵称,如果互为好友也可以使用给该好友的备注\n
-        is_send:是否发送@好友这条信息\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊备注
+        group_member:群成员在群聊中的昵称,如果互为好友也可以使用给该好友的备注
+        is_send:是否发送@好友这条信息
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import at,send_message_to_friend
-        at(group_name='测试群',group_member='客服',close=False)
+        at(group_name='测试群',group_member='客服',close_wechat=False)
         send_message_to_friend(friend='测试群',message='你好,请问....')
         ```
     '''
+    def best_match(chatContactMenu,name):
+        '''在@列表里对比与去掉emoji字符后的name一致的'''
+        at_bottom=False
+        at_list=chatContactMenu.descendants(control_type='List',title='')[0]
+        selected_items=[]
+        selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+        while emoji.replace_emoji(selected_item.window_text())!=name:
+            pyautogui.press('down')
+            selected_item=[item for item in at_list.children(control_type='ListItem') if item.is_selected()][0]
+            selected_items.append(selected_item)
+            #################################################
+            #当selected_item在selected_items的倒数第二个时，也就是重复出现时,说明已经到达底部
+            if len(selected_items)>2 and selected_item==selected_items[-2]:
+                #到@好友列表底部,必须退出
+                at_bottom=True
+                break
+        if at_bottom:
+            #到达底部还没找到就删除掉名字以及@符号
+            pyautogui.press('backspace',len(name)+1,_pause=False)
+        if not at_bottom:
+            pyautogui.press('enter')
+    if emoji.emoji_count(group_member):
+        group_member=emoji.replace_emoji(group_member)
     edit_area,main_window=Tools.open_dialog_window(friend=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     chat_history_button=main_window.child_window(**Buttons.ChatHistoryButton)
     chatContactMenu=main_window.child_window(**Panes.ChatContaceMenuPane)
     if not chat_history_button.exists():#主界面连聊天记录这个按钮也没有,不是好友
         main_window.close()
-        raise NotFriendError(f'非正常好友,无法@!')
+        raise NotFriendError(f'非群聊,无法@!')
     Systemsettings.set_english_input()
     edit_area.click_input() 
     edit_area.type_keys(f'@{group_member}')
@@ -10736,7 +11055,7 @@ def at(group_name:str,group_member:str,is_send:bool=False,search_pages:int=5,wec
         #按len(group_member)+1下backsapce把@xxx删掉
         pyautogui.press('backspace',presses=len(group_member)+1,_pause=False)
     if chatContactMenu.exists():
-        pyautogui.press('enter')
+        best_match(chatContactMenu,group_member)
         if is_send:
             pyautogui.hotkey('alt','s')
     if close_wechat:
@@ -10746,16 +11065,16 @@ def at_all(group_name:str,is_send:bool=False,search_pages:int=5,wechat_path:str=
     '''
     该函数用来在群聊中@所有人,需要注意的是PC微信仅支持群聊@,且该函数主要用来配合send_message类方法使用\n
     默认不直接发送@消息,如果需要单纯地发送一个@所有人\n
-    需要将is_send设置为True\n
+    需要将is_send设置为True
     Args:
-        group_name:\t群聊备注\n
-        is_send:是否发送@所有人这条信息\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊备注
+        is_send:是否发送@所有人这条信息
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import at_all,send_message_to_friend
@@ -10784,25 +11103,25 @@ def at_all(group_name:str,is_send:bool=False,search_pages:int=5,wechat_path:str=
     if close_wechat:
         main_window.close()
 
-def auto_reply_to_group(group_name:str,duration:str,content:str,at_only:bool=True,maxReplynum:int=3,at_others:bool=True,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,delay:float=0.4)->(str|None):
+def auto_reply_to_group(group_name:str,duration:str,content:str,at_only:bool=True,maxReplynum:int=3,at_others:bool=True,save_chat_history:bool=False,capture_screen:bool=False,folder_path:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->(str|None):
     '''
     该函数用来实现自动回复某个群聊的消息,默认只有我在群聊内被别人@时才回复他,回复时默认@别人\n
     Args:
-        group_name:\t群聊备注\n
-        duration:\t自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时\n
-        content:\t指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试。\n
-        at_only:\t是否只在我被@时才自动回复,默认为True,设置为False的话,只要有新消息就回复\n
-        at_others:\t回复的时候,要不要@别人,默认为True\n
-        maxReplynum:\t最多同时回复群内连续发送的n条新消息,默认为3,不用设置特别大\n
-        save_chat_history:\t是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
-        capture_screen:\t是否保存聊天记录截图,默认值为False不保存。\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
-        folder_path:\t存放聊天记录截屏图片的文件夹路径\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        group_name:群聊备注
+        duration:自动回复持续时长,格式:'s','min','h',单位:s/秒,min/分,h/小时
+        content:指定的回复内容,比如:自动回复[微信机器人]:您好,我当前不在,请您稍后再试。
+        at_only:是否只在我被@时才自动回复,默认为True,设置为False的话,只要有新消息就回复
+        at_others:回复的时候,要不要@别人,默认为True
+        maxReplynum:最多同时回复群内连续发送的n条新消息,默认为3,不用设置特别大
+        save_chat_history:是否保存自动回复时留下的聊天记录,若值为True该函数返回值为聊天记录json,否则该函数无返回值。\n
+        capture_screen:是否保存聊天记录截图,默认值为False不保存。
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
+        folder_path:存放聊天记录截屏图片的文件夹路径
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import auto_reply_to_group
@@ -10821,7 +11140,6 @@ def auto_reply_to_group(group_name:str,duration:str,content:str,at_only:bool=Tru
                 if at_others:
                     at_others(who)
                 pyautogui.hotkey('ctrl','v',_pause=False)
-                time.sleep(delay)
                 pyautogui.hotkey('alt','s',_pause=False)
             else:#消息中没有@我的字样不回复
                 pass
@@ -10830,7 +11148,6 @@ def auto_reply_to_group(group_name:str,duration:str,content:str,at_only:bool=Tru
                 if at_others:
                     at_others(who)
                 pyautogui.hotkey('ctrl','v',_pause=False)
-                time.sleep(delay)
                 pyautogui.hotkey('alt','s',_pause=False)
             else:
                 pass
@@ -10870,17 +11187,14 @@ def auto_reply_to_group(group_name:str,duration:str,content:str,at_only:bool=Tru
     responsed.extend(initialMessages) 
     Systemsettings.copy_text_to_windowsclipboard(content)#复制回复内容到剪贴
     Systemsettings.open_listening_mode(full_volume=False)#开启监听模式,此时电脑只要不断电不会息屏 
-    start_time=time.time()  
-    while True:
-        if time.time()-start_time<duration:
-            newMessages=Tools.pull_messages(friend=group_name,number=maxReplynum,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
-            filtered_newMessages=[newMessage for newMessage in newMessages if newMessage not in responsed]
-            for newMessage in filtered_newMessages:
-                message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype='群聊')
-                send_message(message_content,message_sender)
-                responsed.append(newMessage)
-        else:
-            break
+    end_timestamp=time.time()+duration#根据秒数计算截止时间
+    while time.time()<end_timestamp:
+        newMessages=Tools.pull_messages(friend=group_name,number=maxReplynum,search_pages=search_pages,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False,parse=False)
+        filtered_newMessages=[newMessage for newMessage in newMessages if newMessage not in responsed]
+        for newMessage in filtered_newMessages:
+            message_sender,message_content,message_type=Tools.parse_message_content(ListItem=newMessage,friendtype='群聊')
+            send_message(message_content,message_sender)
+            responsed.append(newMessage)
     if save_chat_history:
         chat_history=get_chat_history(friend=group_name,number=2*len(responsed),capture_screen=capture_screen,folder_path=folder_path,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)  
         return chat_history
@@ -10892,24 +11206,24 @@ def save_photos(friend:str,number:int,folder_path:str=None,save_method:int=0,is_
     '''
     该函数用来保存与某个好友或群聊的图片到指定文件夹中\n
     Args:
-        friend:\t好友或群聊备注\n
-        number:\t需要保存的图片数量\n
-        folder_path:\t保存图片的文件夹路径,如果不传入则默认保存在当前运行代码所在的文件夹下\n
-        save_method:\t保存图片的方式,截图或另存为,截图更快,另存为可以保留原图,取值为0或1,0表示截图,1表示点击另存为保存,默认截图\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        number:需要保存的图片数量
+        folder_path:保存图片的文件夹路径,如果不传入则默认保存在当前运行代码所在的文件夹下
+        save_method:保存图片的方式,截图或另存为,截图更快,另存为可以保留原图,取值为0或1,0表示截图,1表示点击另存为保存,默认截图\n
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
              尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
              传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import save_photos
-        folder_path=r'E:\Desktop\新建文件夹'
+        folder_path=r'E:\新建文件夹'
         save_photos(friend='测试群',number=20,folder_path=folder_path,save_method=1)
         ```
     '''
-    if save_method not in [0,1]:
+    if save_method not in {0,1}:
         raise WrongParameterError(f'save_method的取值为0或1!')
     if folder_path and not os.path.isdir(folder_path):
         raise NotFolderError(f'所选路径不是文件夹!无法保存聊天记录,请重新选择!')
@@ -10927,15 +11241,23 @@ def save_photos(friend:str,number:int,folder_path:str=None,save_method:int=0,is_
     earliest_image=image_preview_window.child_window(**Texts.EarliestOneText)
     RotateButton=image_preview_window.child_window(**Buttons.RotateButton)
     chat_history_window,main_window=Tools.open_chat_history(friend=friend,close_wechat=close_wechat,search_pages=search_pages,is_maximize=is_maximize,wechat_path=wechat_path)
+    #先激活scrollbar
     rec=chat_history_window.rectangle()
     mouse.click(coords=(rec.right-10,rec.bottom-10))
     pyautogui.press('End')
+    #点击右下角，并按下end键
     contentList=chat_history_window.child_window(**Lists.ChatHistoryList)
-    if not contentList.exists():    
+    if not contentList.exists():#看一下是否存在聊天记录列表，如果不存在说明没有聊天记录    
         chat_history_window.close()
         if main_window:
             main_window.close()
         raise NoChatHistoryError(f'你还未与{friend}聊天,无法保存聊天视频!')  
+    last_item=contentList.children(control_type='ListItem')[-1]
+    #点击最后一条聊天记录
+    rec=last_item.rectangle()
+    #注意不能直接click_input,要点击最右边，click_input默认点击中间
+    #如果是视频或者链接,直接就打开了，无法继续向上遍历
+    mouse.click(coords=(rec.right-30,rec.bottom-20))
     selected_items=[]
     selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
     while selected_item.window_text()!=SpecialMessages.PhotoMessage['title']:
@@ -10949,7 +11271,7 @@ def save_photos(friend:str,number:int,folder_path:str=None,save_method:int=0,is_
             break
     #可能是因为到达顶部退出循环的,还是要再判断一下
     if selected_item.window_text()==SpecialMessages.PhotoMessage['title']:
-        #点一下播放按钮,也有可能是下载按钮
+        #点一下播放按钮,也有可能是下载W按钮
         selected_item.descendants(control_type='Button',title='')[-1].click_input()
         chat_history_window.close()
     '''
@@ -11022,19 +11344,19 @@ def save_videos(friend:str,number:int,folder_path:str=None,is_maximize:bool=True
     '''
     该函数用来保存与某个好友或群聊的视频到指定文件夹中,使用时尽可能保证聊天记录中有视频存在\n
     Args:
-        friend:\t好友或群聊备注\n
-        number:\t需要保存的图片数量\n
-        folder_path:\t保存视频的文件夹路径,如果不传入则默认保存在当前运行代码所在路径下\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        number:需要保存的图片数量
+        folder_path:保存视频的文件夹路径,如果不传入则默认保存在当前运行代码所在路径下
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
              尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
              传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import save_photos
-        folder_path=r'E:\Desktop\视频保存'
+        folder_path=r'E:\视频保存'
         save_videos(friend='测试群',number=20,folder_path=folder_path)
         ```
     '''
@@ -11068,7 +11390,12 @@ def save_videos(friend:str,number:int,folder_path:str=None,is_maximize:bool=True
         chat_history_window.close()
         if main_window:
             main_window.close()
-        raise NoChatHistoryError(f'你还未与{friend}聊天,无法保存聊天视频!')  
+        raise NoChatHistoryError(f'你还未与{friend}聊天,无法保存聊天视频!')
+    last_item=contentList.children(control_type='ListItem')[-1]
+    #点击最后一条聊天记录
+    rec=last_item.rectangle()
+    #注意不能直接click_input,要点击最右边，click_input默认点击中间
+    #如果是视频或者链接,直接就打开了，无法继续向上遍历
     selected_items=[]
     selected_item=[item for item in contentList.children(control_type='ListItem') if item.is_selected()][0]
     while selected_item.window_text()!=SpecialMessages.VideoMessage['title']:
@@ -11150,15 +11477,15 @@ def forward_files(friend:str,others:list[str],number:int=10,is_maximize:bool=Tru
     '''
     该函数用来转发与某个好友或群聊聊天记录内的聊天文件给指定好友\n
     Args:
-        friend:\t好友或群聊备注\n
-        others:\t所有转发对象\n
-        number:\t需要转发的文件数量,默认为10.如果没那么多,则转发全部\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        others:所有转发对象
+        number:需要转发的文件数量,默认为10.如果没那么多,则转发全部
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import forward_files
@@ -11248,15 +11575,15 @@ def forward_links(friend:str,others:list[str],number:int=10,is_maximize:bool=Tru
     '''
     该函数用来转发与某个好友或群聊的聊天记录内的链接给指定好友\n
     Args:
-        friend:\t好友或群聊备注\n
-        others:\t所有转发对象\n
-        number:\t需要转发的链接数量,默认为10,如果没有那么多,则转发全部\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        others:所有转发对象
+        number:需要转发的链接数量,默认为10,如果没有那么多,则转发全部
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
              尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
              传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import forward_files
@@ -11345,15 +11672,15 @@ def forward_music_and_audio(friend:str,others:list[str],number:int=10,is_maximiz
     '''
     该函数用来转发与某个好友或群聊的聊天记录中的音乐与音频给指定好友\n
     Args:
-        friend:\t好友或群聊备注\n
-        others:\t所有转发对象\n
-        number:\t需要转发的音乐与音频数量,默认为10,如果没有那么多,则转发全部\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        others:所有转发对象
+        number:需要转发的音乐与音频数量,默认为10,如果没有那么多,则转发全部
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
              尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
              传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import forward_music_and_audio
@@ -11442,15 +11769,15 @@ def forward_MiniPrograms(friend:str,others:list[str],number:int=10,is_maximize:b
     '''
     该函数用来转发与某个好友或群聊的聊天记录中的小程序给指定好友\n
     Args:
-        friend:\t好友或群聊备注\n
-        others:\t所有转发对象\n
-        number:\t需要转发的音乐与音频数量,默认为10,如果没有那么多,则转发全部\n
-        search_pages:\t在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
-        wechat_path:\t微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+        friend:好友或群聊备注
+        others:所有转发对象
+        number:需要转发的音乐与音频数量,默认为10,如果没有那么多,则转发全部
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏法搜索好友信息打开聊天界面\n
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
              尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
              传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
-        is_maximize:\t微信界面是否全屏,默认全屏。\n
-        close_wechat:\t任务结束后是否关闭微信,默认关闭\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
     Examples:
         ```
         from pywechat import forward_MiniPrograms
@@ -11520,7 +11847,7 @@ def forward_MiniPrograms(friend:str,others:list[str],number:int=10,is_maximize:b
                 one_by_one_ForwardButton.click_input()
                 select_contact_window.child_window(**Buttons.MultiSelectButton).click_input()
             else:
-                pass
+                pass    
         if res:
             for other_friend in others[len(others)-res:len(others)]:
                 search_button.click_input()
@@ -11541,12 +11868,10 @@ def export_files(year:str=time.strftime('%Y'),month:str=None,target_folder:str=N
     当然也可以使用Tools.where_chat_files_folder(open_folder=True)方法\n
     打开微信聊天文件存储位置后自己手动复制导出\n
     Args:
-        year:\t年份,微信最多保留最近一年的聊天文件,格式:YYYY:2025,2024,不要超过最近一年\n
-        month:\t月份,微信聊天文件是按照xxxx年-xx月分批存储的格式:XX:06\n
-        target_folder:\t导出的聊天文件保存的位置,需要是文件夹\n
+        year:年份,除非手动删除否则聊天文件持续保存,格式:YYYY:2025,2024\n
+        month:月份,微信聊天文件是按照xxxx年-xx月分批存储的格式:XX:06\n
+        target_folder:导出的聊天文件保存的位置,需要是文件夹\n
     '''
-    if not isinstance(year,str) or not isinstance(month,str):
-        raise TypeError(f'year或month类型为字符串!')
     folder_name=f'{year}-{month}微信聊天文件导出' if month else f'{year}微信聊天文件导出' 
     if not target_folder:
         os.makedirs(name=folder_name,exist_ok=True)
@@ -11571,16 +11896,14 @@ def export_files(year:str=time.strftime('%Y'),month:str=None,target_folder:str=N
 
 def export_videos(year:str=time.strftime('%Y'),month:str=None,target_folder:str=None)->None:
     '''
-    该函数用来快速导出微信聊天视频\n
+    该函数用来快速导出微信保存到本地的聊天视频\n
     当然也可以使用Tools.where_chat_video_folder(open_folder=True)方法\n
     打开微信聊天文件存储位置后自己手动复制导出\n
     Args:
-        year:\t年份,微信最多保留最近一年的聊天文件,格式:YYYY2025\n
-        month:\t月份,微信聊天文件是按照xxxx年-xx月分批存储的格式:XX06\n
-        target_folder:\t导出的聊天文件保存的位置,需要是文件夹\n
+        year:年份,除非手动删除聊天视频否则一直保存,格式:YYYY:2025,2024
+        month:月份,微信聊天文件是按照xxxx年-xx月分批存储的格式:XX:05,11
+        target_folder:导出的聊天文件保存的位置,需要是文件夹
     '''
-    if not isinstance(year,str) or not isinstance(month,str):
-        raise TypeError(f'year或month类型为字符串!')
     folder_name=f'{year}-{month}微信聊天视频导出' if month else f'{year}微信聊天视频导出' 
     if not target_folder:
         os.makedirs(name=folder_name,exist_ok=True)
@@ -11600,3 +11923,989 @@ def export_videos(year:str=time.strftime('%Y'),month:str=None,target_folder:str=
         Videos=[os.path.join(folder_path,filename) for filename in  os.listdir(folder_path) if filename.endswith('.mp4')]
         Systemsettings.copy_files(Videos,target_folder)
     print(f'已导出{len(os.listdir(target_folder))}个视频至:{target_folder}')
+
+def get_subscribed_oas(is_json:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->(list[str]|str):
+    '''
+    该函数用来获取已关注的所有公众号的名称。\n
+    结果以list[str]或该类型的json字符串返回\n
+    Args:
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面是否全屏,默认全屏。\n
+        close_wechat:任务结束后是否关闭微信,默认关闭\n
+    Returns:
+        names:['微信支付','腾讯新闻',...]
+    '''
+    main_window=Tools.open_contacts(wechat_path=wechat_path,is_maximize=is_maximize)
+    ContactsLists=main_window.child_window(**Main_window.ContactsList)
+    rec=ContactsLists.rectangle()
+    mouse.click(coords=(rec.right-5,rec.top))
+    pyautogui.press('Home')
+    official_account=ContactsLists.child_window(**ListItems.OfficialAccountsListItem)
+    if not official_account.exists():
+        selected_item=ContactsLists.children(control_type='ListItem')[0]
+        selected_items=[selected_item]
+        while selected_item.window_text()!=ListItems.OfficialAccountsListItem['title']:
+            selected_item=[item for item in ContactsLists.children(control_type='ListItem') if item.is_selected()][0]
+            selected_items.append(selected_item)
+            #################################################
+            #没必要继续向下了，此时已经到头了，可以提前break了
+            #也就是当前selected_item在selected_items的倒数第二个时，就可以直接退出了，当然，必须得保证selected_items大于2
+            if len(selected_items)>2 and selected_item==selected_items[-2]:
+                break
+            pyautogui.keyDown('down',_pause=False)
+        if not official_account.exists():
+            main_window.close()
+            raise NoSubScribedOAError
+    official_account.click_input()
+    parent=main_window.child_window(**Texts.OfficialAccountsText).parent().parent()
+    official_account_list=parent.children(control_type='Pane')[1].children(control_type='ListItem')
+    names=[ListItem.window_text() for ListItem in official_account_list]
+    if is_json:
+        names=json.dumps(names,ensure_ascii=False,indent=2)
+    if close_wechat:
+        main_window.close()
+    return names
+
+def save_my_PaymentCode(folder_path:str,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True,close_ledger:bool=True):
+    '''
+    该函数用来保存我的收款码图片到本地并返回收款码图片在本地的路径\n
+    如果需要分享给好友,可以先调用此函数保存并获取收款码路径然后使用send_file_to_friends发送该路径下的图片\n
+    Args:
+        folder_path:保存收款码图片的文件夹路径
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
+    Returns:
+        filepath:保存的收款码图片路径
+
+    '''
+    Systemsettings.copy_text_to_windowsclipboard(folder_path)
+    payment_code_window=Tools.open_payment_code_window(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat,close_ledger=close_ledger)[0]
+    save_paymentcode_text=payment_code_window.child_window(**Texts.SavePaymentCodeText).wait(wait_for='ready',timeout=5)
+    save_paymentcode_text.click_input()
+    desktop=Desktop(**Independent_window.Desktop)
+    save_as_window=desktop.window(**{'title_re':'另存为','control_type':'Window','framework_id':'Win32','top_level_only':False})
+    while not save_as_window.exists():
+        time.sleep(0.1)
+    prograss_bar=save_as_window.child_window(control_type='ProgressBar',class_name='msctls_progress32',framework_id='Win32')
+    path_bar=prograss_bar.child_window(class_name='ToolbarWindow32',control_type='ToolBar',found_index=0)
+    if re.search(r':\s*(.*)',path_bar.window_text().lower()).group(1)!=folder_path.lower():
+        rec=path_bar.rectangle()
+        mouse.click(coords=(rec.right-5,int(rec.top+rec.bottom)//2))
+        pyautogui.press('backspace')
+        pyautogui.hotkey('ctrl','v',_pause=False)
+        pyautogui.press('enter')
+        time.sleep(0.5)
+    edit_area=save_as_window.child_window(control_type='Edit',framework_id='Win32',class_name='Edit')
+    filename=edit_area.legacy_properties().get('Value')
+    pyautogui.hotkey('alt','s')
+    payment_code_window.close()
+    filepath=os.path.join(folder_path,filename)
+    os.startfile(filepath)
+    return filepath
+
+def listen_on_chats(friends:list[str],duration:str,is_json:bool=False,save_file:bool=False,file_folder:str=None,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->list[dict]:
+    '''
+    该函数通过ThreadPoolExecutor线程池并发来持续监听friends内每个好友的聊天窗口内的消息\n
+    如果有新文件则将按照好友名称格式自动创建子文件夹将其保存到指定的文件夹内。\n
+    注意,friends不建议很多,一般不要超过32(Python默认限制)。\n
+    Args:
+        friend:好友或群聊备注
+        is_json:返回值类型是否为json,默认为False,为了方便IO写入操作可以设置为True
+        duration:监听持续时长，格式:'s','秒','min','分','h','小时'
+        save_file:是否保存监听过程中的文件，默认保存
+        file_folder:保存聊天记录的文件夹路径，如果不传入则保存在当前运行代码所在的文件夹下
+        search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为5
+        wechat_path:微信的WeChat.exe文件地址
+        is_maximize:微信界面是否全屏，默认全屏
+        close_wechat:任务结束后是否关闭微信，默认关闭
+    Returns:
+        results:所有监听消息结果(字典)构成的列表
+    '''
+    def listen_on_chat(chat,friend,friendtype):
+        #监听单个好友的函数,也是线程池并发的基本单元
+        photo_num=0
+        video_num=0
+        recorded=[]
+        filelist=set()
+        message_contents=[]
+        message_senders=[]
+        message_types=[]
+        timestamp=time.strftime("%Y-%m")
+        initialMessages=Tools.pull_messages(friend=friend,chatWnd=chat,number=3, 
+                search_pages=search_pages, wechat_path=wechat_path,
+                is_maximize=is_maximize, close_wechat=False, parse=False)
+        recorded.extend(initialMessages)
+        #listen_on_chat内持续检查消息函数
+        def check_messages():
+            nonlocal photo_num, video_num, recorded, filelist, message_contents, message_senders, message_types
+            newMessages=Tools.pull_messages(friend=friend, chatWnd=chat, number=3, 
+                            search_pages=search_pages, wechat_path=wechat_path,
+                            is_maximize=is_maximize, close_wechat=False, parse=False)
+            if friendtype=='好友':
+                for newMessage in newMessages:
+                    if newMessage not in recorded:
+                        message_sender, message_content, message_type = Tools.parse_message_content(
+                            ListItem=newMessage, friendtype=friendtype)
+                        message_contents.append(message_content)
+                        message_senders.append(message_sender)
+                        message_types.append(message_type)
+                        if message_type=='文件':
+                            filelist.add(os.path.join(chatfiles_folder, timestamp, message_content))
+                        if message_type=='图片':
+                            photo_num+=1
+                        if message_type=='视频':
+                            video_num += 1
+                        recorded.append(newMessage)
+                            
+            if friendtype=='群聊':
+                for newMessage in newMessages:
+                    if newMessage not in recorded:
+                        message_sender, message_content, message_type=Tools.parse_message_content(
+                            ListItem=newMessage, friendtype=friendtype)
+                        message_contents.append(message_content)
+                        message_senders.append(message_sender)
+                        message_types.append(message_type)
+                        if message_type=='文件':
+                            filelist.add(os.path.join(chatfiles_folder, timestamp, message_content))
+                        if message_type=='图片':
+                            photo_num+=1
+                        if message_type=='视频':
+                            video_num+=1
+                        recorded.append(newMessage)
+        
+        while time.time()<end_timestamp:
+            check_messages()
+            remaining=end_timestamp-time.time()
+            sleep_time=min(0.5,remaining)
+            if sleep_time>0:
+                time.sleep(sleep_time)
+        if save_file and filelist:
+            Systemsettings.copy_files(filelist, target_folder=subfolder)
+            print(f'监听至{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_timestamp))}结束,{friend}已自动保存文件{len(filelist)}个')
+        return {'好友':friend,'新消息条数':len(message_contents),'新消息内容':message_contents, 
+            '新消息发送人': message_senders, '新消息类型': message_types}
+    
+    friendtypes=[]
+    subfolders=[None]*len(friends)
+    if not file_folder and save_file:
+        os.makedirs(name=f'listen_on_chats聊天文件自动保存', exist_ok=True)
+        file_folder=os.path.join(os.getcwd(), f'listen_on_chats聊天文件自动保存')
+    if file_folder and not os.path.isdir(file_folder):
+        raise NotFolderError
+    if save_file:
+        for i in range(len(friends)):
+            subfolder=os.path.join(file_folder,f'{friends[i]}-聊天文件自动保存')
+            subfolders.append(subfolder)
+            os.makedirs(subfolder,exist_ok=True)
+    duration_seconds=match_duration(duration)
+    end_timestamp=time.time()+duration_seconds#根据秒数计算截止时间
+    chatfiles_folder=Tools.where_chatfiles_folder()#微信聊天文件保存路径
+    #同时打开多个好友的独立聊天窗口
+    chats=Tools.open_dialog_windows(friends=friends,close_wechat=close_wechat,wechat_path=wechat_path,is_maximize=is_maximize)
+    for chat in chats:
+        video_call_button=chat.child_window(**Buttons.VideoCallButton)
+        chat_history_button=chat.child_window(**Buttons.ChatHistoryButton)
+        if chat_history_button.exists():
+            friendtypes.append('好友')
+        if not video_call_button.exists() and chat_history_button.exists():
+            friendtypes.append('群聊')
+        if not chat_history_button.exists():
+            friendtypes.append('公众号')
+    #线程池
+    Systemsettings.open_listening_mode(full_volume=False)
+    with ThreadPoolExecutor() as executor:
+        #将参数打包成元组列表
+        args_list=list(zip(chats,friends,friendtypes))
+        #使用map方法并行执行
+        results=list(executor.map(lambda args: listen_on_chat(*args), args_list))
+    #最后再把所有打开的窗口关闭
+    for chat in chats:
+        chat.close()
+    Systemsettings.close_listening_mode()
+    #把多余的以好友名字命名的且无聊天文件的文件夹删掉
+    for subfolder in subfolders:
+        if subfolder and Systemsettings.is_empty_folder(subfolder):
+            os.removedirs(subfolder)
+    if is_json:
+        results=json.dumps(results,ensure_ascii=False,indent=2)
+    return results
+
+def dump_recent_session(recent:Literal['Today','Yesterday','Week','Month','Year'],
+    message_only:bool=False,no_official:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->tuple[list[str],list[str],list[str]]:
+    '''
+    该函数用来获取会话列表内最近的聊天对象的名称,最后聊天时间,以及最后一条聊天消息
+    Args:
+        recent:获取最近消息的时间节点,可选值为'Today','Yesterday','Week','Month','Year'分别获取当天,昨天,本周,本月,本年
+        message_only:只获取会话列表中有消息的好友(ListItem底部有灰色消息不是空白),默认为False
+        no_official:不包含公众号(从关注过的公众号中排查),默认为False
+        wechat_path:微信的WeChat.exe文件地址
+        is_maximize:微信界面是否全屏，默认全屏
+        close_wechat:任务结束后是否关闭微信，默认关闭
+    '''
+    def get_sending_time(ListItem):
+        '''
+        普通好友:[名字,时间,消息]或[名字,时间,消息,新消息条数]\n
+        企业微信好友:[名字,@公司名,时间，消息]或[名字,@公司名,时间，消息,'新消息条数']\n
+        下方的判断逻辑基于上述列表
+        '''
+        texts=ListItem.descendants(control_type='Text')
+        if len(texts)==4 and not texts[-1].window_text().isdigit():
+            return texts[2].window_text()
+        if len(texts)==5:
+            return texts[2].window_text()
+        return texts[1].window_text()
+
+    def get_last_message(ListItem):
+        '''
+        普通好友:[名字,时间,消息]或[名字,时间,消息,新消息条数]\n
+        企业微信好友:[名字,@公司名,时间，消息]或[名字,@公司名,时间，消息,'新消息条数']\n
+        下方的判断逻辑基于上述列表
+        '''
+        texts=ListItem.descendants(control_type='Text')
+        if len(texts)==4 and not texts[-1].window_text().isdigit():
+            return texts[3].window_text()
+        if len(texts)==5:
+            return texts[3].window_text()
+        return texts[2].window_text()
+
+    recent_modes=['Today','Yesterday','Week','Month','Year']
+    if recent not in recent_modes:
+        raise WrongParameterError('只能获取当天,昨天,本周,本月,本年的聊天对象!')
+    if no_official:
+        officialAccounts=get_subscribed_oas(is_json=False,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False)
+        #这几个公众号是不会出现在已关注的公众号列表中，需要额外补充
+        if language=='简体中文':
+            taboo_list=['微信团队','订阅号','腾讯新闻','服务通知']
+        if language=='繁体中文':
+            taboo_list=['微信团队','微信安全中心','訂閱賬號','騰訊新聞','服務通知']
+        if language=='英文':
+            taboo_list=['微信团队','Subscriptions','Tencent News','Service Notifications']
+        officialAccounts.extend(taboo_list)
+    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
+    chats_button=main_window.child_window(**SideBar.Chats)
+    chats_button.click_input()
+    message_list=main_window.child_window(**Main_window.ConversationList)
+    if not message_list.children(control_type='ListItem'):
+        main_window.close()
+        raise NoChatsError
+    chats=[]
+    ListItems=[]
+    latest_message=[]
+    latest_sending_time=[]
+    scrollable=Tools.is_VerticalScrollable(message_list)
+    lastmonth='/'+str(int(time.strftime('%m'))-1)+'/'#上个月
+    lastyear=str(int(time.strftime('%y'))-1)+'/'#去年
+    yesterday='Yesterday' if language=='英文' else '昨天'
+    if not scrollable:
+        ListItems=message_list.children(control_type='ListItem')
+        if recent=='Year':
+            ListItems=[ListItem for ListItem in ListItems if lastyear not in get_sending_time(ListItem)]
+        if recent=='Month':
+            ListItems=[ListItem for ListItem in ListItems if lastmonth not in get_sending_time(ListItem)]
+        if recent=='Week':
+            ListItems=[ListItem for ListItem in ListItems if '/' not in get_sending_time(ListItem)]
+        if recent=='Today':
+            ListItems=[ListItem for ListItem in ListItems if ':' in get_sending_time(ListItem)]
+        if recent=='Yesterday':
+            ListItems=[ListItem for ListItem in ListItems if yesterday in get_sending_time(ListItem)]
+        if message_only:
+            ListItems=[ListItem for ListItem in ListItems if get_last_message(ListItem)!='']
+        if no_official:
+            ListItems=[ListItem for ListItem in ListItems if ListItem.descendants(control_type='Text')[0].window_text() not in officialAccounts]
+        chats.extend([ListItem.descendants(control_type='Text')[0].window_text() for ListItem in ListItems])
+        latest_sending_time.extend([get_sending_time(ListItem) for ListItem in ListItems])
+        latest_message.extend([get_last_message(ListItem) for ListItem in ListItems])
+    if scrollable:
+        rectangle=message_list.rectangle()
+        activateScollbarPosition=(rectangle.right-5, rectangle.top+20)
+        mouse.click(coords=activateScollbarPosition)
+        pyautogui.press('Home')
+        while True:
+            ListItems=message_list.children(control_type='ListItem')
+            if recent=='Year':
+                ListItems=[ListItem for ListItem in ListItems if lastyear not in get_sending_time(ListItem)]
+            if recent=='Month':
+                ListItems=[ListItem for ListItem in ListItems if lastmonth not in get_sending_time(ListItem)]
+            if recent=='Week':
+                ListItems=[ListItem for ListItem in ListItems if '/' not in get_sending_time(ListItem)]
+            if recent=='Today':
+                ListItems=[ListItem for ListItem in ListItems if ':' in get_sending_time(ListItem)]
+            if recent=='Yesterday':
+                ListItems=[ListItem for ListItem in ListItems if yesterday in get_sending_time(ListItem)]
+            if message_only:
+                ListItems=[ListItem for ListItem in ListItems if get_last_message(ListItem)!='']
+            if no_official:
+                ListItems=[ListItem for ListItem in ListItems if ListItem.descendants(control_type='Text')[0].window_text() not in officialAccounts]
+            chats.extend([ListItem.descendants(control_type='Text')[0].window_text() for ListItem in ListItems])
+            latest_sending_time.extend([get_sending_time(ListItem) for ListItem in ListItems])
+            latest_message.extend([get_last_message(ListItem) for ListItem in ListItems])
+            if not ListItems:
+                break
+            pyautogui.keyDown('pagedown',_pause=False)
+        pyautogui.press('Home')
+    if close_wechat:
+        main_window.close()
+    return chats,latest_sending_time,latest_message
+
+def dump_session_list(chatted_only:bool=False,no_official:bool=False,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->tuple[list[str],list[str],list[str]]:
+    '''
+    该函数用来获取会话列表内所有的聊天对象的名称,最后聊天时间,以及最后一条聊天消息
+    Args:
+        chatted_only:只获取会话列表中聊过天的好友(ListItem底部有灰色消息不是空白),默认为False
+        no_official:不包含公众号(从关注过的公众号中排查),默认为False
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面是否全屏，默认全屏
+        close_wechat:任务结束后是否关闭微信，默认关闭
+    '''
+    def get_sending_time(ListItem):
+        '''
+        普通好友:[名字,时间,消息]或[名字,时间,消息,新消息条数]\n
+        企业微信好友:[名字,@公司名,时间，消息]或[名字,@公司名,时间，消息,'新消息条数']\n
+        下方的判断逻辑基于上述列表
+        '''
+        texts=ListItem.descendants(control_type='Text')
+        if len(texts)==4 and not texts[-1].window_text().isdigit():
+            return texts[2].window_text()
+        if len(texts)==5:
+            return texts[2].window_text()
+        return texts[1].window_text()
+
+    def get_last_message(ListItem):
+        '''
+        普通好友:[名字,时间,消息]或[名字,时间,消息,新消息条数]\n
+        企业微信好友:[名字,@公司名,时间，消息]或[名字,@公司名,时间，消息,'新消息条数']\n
+        下方的判断逻辑基于上述列表
+        '''
+        texts=ListItem.descendants(control_type='Text')
+        if len(texts)==4 and not texts[-1].window_text().isdigit():
+            return texts[3].window_text()
+        if len(texts)==5:
+            return texts[3].window_text()
+        return texts[2].window_text()
+
+    if no_official:
+        officialAccounts=get_subscribed_oas(is_json=False,wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=False)
+        #这几个公众号是不会出现在已关注的公众号列表中，需要额外补充
+        if language=='简体中文':
+            taboo_list=['微信团队','订阅号','腾讯新闻','服务通知']
+        if language=='繁体中文':
+            taboo_list=['微信团队','訂閱賬號','騰訊新聞','服務通知']
+        if language=='英文':
+            taboo_list=['微信团队','Subscriptions','Tencent News','Service Notifications']
+        officialAccounts.extend(taboo_list)
+    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
+    chats_button=main_window.child_window(**SideBar.Chats)
+    chats_button.click_input()
+    message_list=main_window.child_window(**Main_window.ConversationList)
+    if not message_list.children(control_type='ListItem'):
+        raise NoChatsError
+    chats=[]
+    ListItems=[]
+    latest_message=[]
+    latest_sending_time=[]
+    scrollable=Tools.is_VerticalScrollable(message_list)
+    if not scrollable:
+        ListItems=message_list.children(control_type='ListItem')
+        if chatted_only:
+            ListItems=[ListItem for ListItem in ListItems if get_last_message(ListItem)!='']
+        if no_official:
+            ListItems=[ListItem for ListItem in ListItems if ListItem.descendants(control_type='Text')[0].window_text() not in officialAccounts]
+        ListItems=list(dict.fromkeys(ListItems))
+        chats.extend([ListItem.descendants(control_type='Text')[0].window_text() for ListItem in ListItems])
+        latest_sending_time.extend([get_sending_time(ListItem) for ListItem in ListItems])
+        latest_message.extend([get_last_message(ListItem) for ListItem in ListItems])
+    if scrollable:
+        rectangle=message_list.rectangle()
+        activateScollbarPosition=(rectangle.right-5, rectangle.top+20)
+        mouse.click(coords=activateScollbarPosition)
+        pyautogui.press('End')
+        last_chat=message_list.children(control_type='ListItem')[-1].window_text()
+        pyautogui.press('Home')
+        while True:
+            ListItems=message_list.children(control_type='ListItem')
+            lastchat=ListItems[-1].window_text()
+            if chatted_only:
+                ListItems=[ListItem for ListItem in ListItems if get_last_message(ListItem)!='']
+            if no_official:
+                ListItems=[ListItem for ListItem in ListItems if ListItem.descendants(control_type='Text')[0].window_text() not in officialAccounts]
+            chats.extend([ListItem.descendants(control_type='Text')[0].window_text() for ListItem in ListItems])
+            latest_sending_time.extend([get_sending_time(ListItem) for ListItem in ListItems])
+            latest_message.extend([get_last_message(ListItem) for ListItem in ListItems])
+            if lastchat==last_chat:
+                break
+            pyautogui.keyDown('pagedown',_pause=False)
+        pyautogui.press('Home')
+    if close_wechat:
+        main_window.close()
+    return chats,latest_sending_time,latest_message
+
+def dump_moments(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    '''
+    该函数用来导出朋友圈所有内容(需要注意如果朋友圈数据较多,该函数会比较耗时)\n
+    Args:
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面是否全屏，默认全屏
+        close_wechat:任务结束后是否关闭微信，默认关闭  
+    '''
+    #对列表内的字典去重，由于含有unhashable的list,无法使用set等方法
+    #因此这里使用json序列化后再去重
+    def deduplicate_dicts(list_of_dicts):
+        seen=set()
+        result=[]
+        for d in list_of_dicts:
+            #使用JSON序列化字典
+            serialized=json.dumps(d, sort_keys=True)
+            if serialized not in seen:
+                seen.add(serialized)
+                result.append(d)
+        return result
+    moments_window=Tools.open_moments(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
+    moments_list=moments_window.child_window(**Lists.MomentsList)
+    listitems=[listitem for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!='']
+    if not listitems:
+        raise NoMomentsError
+    scrollable=Tools.is_VerticalScrollable(moments_list)
+    rec=moments_list.rectangle()
+    x,y=rec.right-100,rec.bottom-100
+    scroll=moments_list.iface_scroll
+    moments=[]
+    if scrollable:
+        moments_list.iface_scroll.SetScrollPercent(verticalPercent=0.0,horizontalPercent=1.0)#调用SetScrollPercent方法向上滚动,verticalPercent=0.0表示直接将scrollbar一下子置于顶部
+        current_pos=scroll.CurrentVerticalScrollPercent#当前滚动百分比（0-1）
+        while current_pos<0.99:
+            current_pos=scroll.CurrentVerticalScrollPercent#当前滚动百分比（0-1）
+            mouse.scroll(coords=(x,y),wheel_dist=-1000)
+            if moments_list.children(control_type='ListItem')[-1].window_text()=='':
+                break
+            moments.extend([Tools.parse_moments_content(listitem) for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!=''])
+    if not scrollable:
+        moments.extend([Tools.parse_moments_content(listitem) for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!=''])
+    moments=deduplicate_dicts(moments)
+   #筛选掉广告内容
+    moments=[dic for dic in moments if not '广告' in dic.get('文本内容') and dic.get('好友备注')!='']
+    moments=[dic for dic in moments if not 'Ad' in dic.get('文本内容') and dic.get('好友备注')!='']
+    moments=[dic for dic in moments if not '廣告' in dic.get('文本内容') and dic.get('好友备注')!='']
+    moments_window.close()
+    return moments
+
+def dump_recent_moments(recent:Literal['Today','Yesterday','Week','Month','Year'],wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+    '''
+    该函数用来获取最近一段时间的朋友圈内容,主要包括今天,昨天,本周,本月,本年\n
+    Args:
+        recent:获取最近聊天记录的时间节点,可选值为'Today','Yesterday','Week','Month','Year'分别获取当天,昨天,本周,本月,本年
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数
+        is_maximize:微信界面是否全屏，默认全屏
+        close_wechat:任务结束后是否关闭微信，默认关闭  
+    '''
+    #对列表内的字典去重，由于含有unhashable的list,无法使用set等方法
+    #因此这里使用json序列化后再去重
+    def deduplicate_dicts(list_of_dicts):
+        seen=set()
+        result=[]
+        for d in list_of_dicts:
+            #使用JSON序列化字典
+            serialized=json.dumps(d, sort_keys=True)
+            if serialized not in seen:
+                seen.add(serialized)
+                result.append(d)
+        return result
+    recent_modes=['Today','Yesterday','Week','Month','Year']
+    if recent not in recent_modes:
+        raise WrongParameterError('只能获取当天,昨天,本周的朋友圈所有内容!')
+    #注意,没有1 day ago 1 day ago就是昨天
+    days_ago='day(s) ago' if language=='英文' else '天前'#xx天前时间戳固定内容
+    month_sep='/' if language=='英文' else '月'
+    year_sep='-' if language=='英文' else '年' 
+    if language=='英文':
+        thismonth=str(int(time.strftime('%m')))+'/'
+    if language=='简体中文':
+        thismonth=str(int(time.strftime('%m')))+'月'
+    if language=='繁体中文':
+        thismonth=str(int(time.strftime('%m')))+' 月'
+    yesterday='Yesterday' if language=='英文' else '昨天'#昨天时间戳固定内容
+    moments_window=Tools.open_moments(wechat_path=wechat_path,is_maximize=is_maximize,close_wechat=close_wechat)[0]
+    moments_list=moments_window.child_window(**Lists.MomentsList)
+    listitems=[listitem for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!='']
+    if not listitems:
+        raise NoMomentsError
+    scrollable=Tools.is_VerticalScrollable(moments_list)
+    rec=moments_list.rectangle()
+    x,y=rec.right-100,rec.bottom-100
+    moments=[]
+    first_moment=[ListItem for ListItem in moments_list.children(control_type='ListItem') if ListItem.window_text()!=''][0]
+    first_moment_post_time=first_moment.descendants(**Buttons.CommentButton)[0].parent().children(control_type='Text')[0].window_text()
+    if year_sep in first_moment_post_time and recent=='Year':
+        print(f'最近的一条朋友圈发布时间为{first_moment_post_time},本年内朋友圈暂无内容!')
+    elif month_sep in first_moment_post_time and thismonth not in first_moment_post_time:
+         print(f'最近的一条朋友圈发布时间为{first_moment_post_time},本月内朋友圈暂无内容!')
+    elif month_sep in first_moment_post_time:
+        print(f'最近的一条朋友圈发布时间为{first_moment_post_time},本周内朋友圈暂无内容!')
+    elif recent=='Yesterday' and days_ago in first_moment_post_time:
+        print(f'最近的一条朋友圈发布时间为{first_moment_post_time},昨天朋友圈无内容!')
+    elif recent=='Today' and yesterday in first_moment_post_time or days_ago in first_moment_post_time:
+        print(f'最近的一条朋友圈发布时间为{first_moment_post_time},今天朋友圈暂无内容!')
+    else:
+        if scrollable:
+            moments_list.iface_scroll.SetScrollPercent(verticalPercent=0.0,horizontalPercent=1.0)#调用SetScrollPercent方法向上滚动,verticalPercent=0.0表示直接将scrollbar一下子置于顶部
+            while True:
+                mouse.scroll(coords=(x,y),wheel_dist=-1000)
+                ListItems=moments_list.children(control_type='ListItem')
+                ListItems=[ListItem for ListItem in ListItems if ListItem.window_text()!='']
+                post_time=ListItems[0].descendants(**Buttons.CommentButton)[0].parent().children(control_type='Text')[0].window_text()
+                #往年时间戳是xxxx-xx-xx，时间戳里有-的都不是今年的
+                if recent=='Year' and year_sep in post_time:
+                    break
+                if recent=='Month':
+                    if month_sep in post_time and thismonth not in post_time:
+                        break
+                    if year_sep in post_time:
+                        break
+                #只要没有/具体日期的都是本周内的
+                if recent=='Week' and month_sep in post_time:
+                    break
+                #在昨天之前，xx天前，\d+月/d+日之前的都是今天的
+                #这三者中可能没有昨天,也就是今天完了直接是xx天前
+                #也可能没有xx天前,也就是今天完了直接就是\d+月/\d+日
+                #但是\d+月/\d+日还是一定存在的
+                #比较优先级昨天>xx天前>\d+年/\d+月,但凡有一个存在立刻结束
+                if recent=='Today':
+                    if yesterday in post_time:
+                        break
+                    if days_ago in post_time:
+                        break
+                    if month_sep in post_time:
+                        break
+                if recent=='Yesterday':
+                    if days_ago in post_time:
+                        break
+                    if month_sep in post_time:
+                        break
+                if moments_list.children(control_type='ListItem')[-1].window_text()=='':
+                    break
+                moments.extend([Tools.parse_moments_content(listitem) for listitem in ListItems])
+            moments=deduplicate_dicts(moments)
+        if not scrollable:
+            moments.extend([Tools.parse_moments_content(listitem) for listitem in moments_list.children(control_type='ListItem') if listitem.window_text()!=''])
+            moments=deduplicate_dicts(moments)
+        if recent in recent_modes[:3]:
+            moments=[dic for dic in moments if month_sep not in dic.get('发布时间')]
+        if recent in recent_modes[3:]:
+            moments=[dic for dic in moments if year_sep not  in dic.get('发布时间')]
+        if recent=='Today':
+            moments=[dic for dic in moments if yesterday not in dic.get('发布时间')]
+        if recent=='Yesterday':
+            moments=[dic for dic in moments if yesterday in dic.get('发布时间')]
+        if recent=='Month':
+            moments=[dic for dic in moments if thismonth in dic.get('发布时间')]
+    #筛选掉广告内容
+    moments=[dic for dic in moments if not '广告' in dic.get('文本内容') and dic.get('好友备注')!='']
+    moments=[dic for dic in moments if not 'Ad' in dic.get('文本内容') and dic.get('好友备注')!='']
+    moments=[dic for dic in moments if not '廣告' in dic.get('文本内容') and dic.get('好友备注')!='']
+    moments_window.close()
+    return moments
+
+def export_recent_moments_images(recent:Literal['Today','Yesterday','Week','Month']='Month',target_folder:str=None):
+    '''
+    该函数用来导出朋友圈缓存中所有图片
+    Args:
+        recent:获取最近朋友圈图片的时间节点,可选值为'Today','Yesterday','Week','Month'分别获取当天,昨天,本周,本月
+        target_folder:导出的图片保存的路径,需要是文件夹
+    '''
+    def is_modified_today(file_path):
+        """
+        判断文件是否在今天被修改过
+        """
+        mod_time=os.path.getmtime(file_path)
+        now=time.time()
+        today_start=now-(now%86400)#今天的0点时间戳
+        return mod_time>=today_start
+
+    def is_modified_yesterday(file_path):
+        """
+        判断文件是否在昨天被修改过
+        """
+        mod_time=os.path.getmtime(file_path)
+        now=time.time()
+        today_start=now-(now%86400) #今天的0点时间戳
+        yesterday_start=today_start-86400#昨天的0点时间戳
+        return yesterday_start<=mod_time <today_start
+
+    def is_modified_this_week(file_path):
+        """
+        判断文件是否在本周被修改过
+        """
+        mod_time=os.path.getmtime(file_path)
+        now=time.time()
+        today_struct=time.localtime(now)
+        weekday=today_struct.tm_wday # 周一=0, 周日=6
+        #周一的0点时间戳
+        monday_start=now-(weekday*86400)-(now%86400)
+        return mod_time>=monday_start
+    
+    def is_image(dat_file):
+        is_image=True
+        #微信常见的图片与视频格式文件头
+        with open(dat_file, 'rb') as f:
+            encrypted_data=f.read()
+        #先不解密看一下是不是mp4类型文件即是否按照mp4_headers内的header开头
+        for header in mp4_headers:
+            if encrypted_data.startswith(header):
+                is_image=False
+                break
+        return is_image
+    
+    #所有常见的mp4文件的header
+    mp4_headers = {
+        b'\x00\x00\x00\x1cftypisom',#实测,视频文件的话这个格式是最常见的
+        b'\x00\x00\x00\x1cftypmp42',#iPhone12pro以下的ios手机拍摄视频格式是这个
+        b'\x00\x00\x00\x1cftypmp41', 
+        b'\x00\x00\x00\x20ftypisom',
+        b'\x00\x00\x00\x20ftpypisom'
+        }
+    timestamp=time.strftime("%Y-%m")
+    recent_modes=['Today','Yesterday','Week','Month']
+    if recent not in recent_modes:
+        raise WrongParameterError
+    if not target_folder:
+        target_folder=os.path.join(os.getcwd(),f'{recent}朋友圈图片导出')
+        os.makedirs(target_folder,exist_ok=True)
+        print(f'未传入文件夹路径,所有导出的微信朋友圈图片将保存至 {target_folder}')
+    if not os.path.isdir(target_folder):
+        raise NotFolderError(f'给定路径不是文件夹,无法导入保存聊天文件')
+    temp=[]
+    sns_cache=os.path.join(Tools.where_SnsCache_folder(),timestamp)
+    with os.scandir(sns_cache) as entries:
+        for entry in entries:
+            mod_time=entry.stat().st_mtime
+            temp.append((entry.name, mod_time))
+    #按照修改时间对filenames排序
+    filenames=[file[0] for file in sorted(temp, key=lambda x: x[1], reverse=True)]
+    #_t结尾的是缩略图,无论是视频还是图片都不需要
+    #视频不全以_d结尾但以_d结尾的一定是视频，对于图片来说可以先初步筛选掉一部分   
+    files=[os.path.join(sns_cache,filename) for filename in filenames if not filename.endswith('_t') and not filename.endswith('_d')]
+    #使用filter继续进行筛选
+    images=list(filter(is_image,files))
+    if recent=='Today':
+        images=list(filter(is_modified_today,images))
+    if recent=='Yesterday':
+        images=list(filter(is_modified_yesterday,images))
+    if recent=='Week':
+        images=list(filter(is_modified_this_week,images))
+    if images:
+        folders=[target_folder]*len(images)
+        names=list(map(str, range(1,len(images))))
+        image_args_list=list(zip(images,folders,names))
+        #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
+        with ThreadPoolExecutor() as executor:
+            executor.map(lambda args: decrypt_image_dat(*args), image_args_list)
+    if not images:
+        print(f'{recent}朋友圈无图片可以导出')
+
+def export_recent_moments_videos(recent:Literal['Today','Yesterday','Week','Month']='Month',target_folder:str=None,transcode:bool=False):
+    '''
+    该函数用来导出最近一个月内朋友圈缓存内的视频,微信朋友圈缓存内的视频类型dat文件无加密\n
+    可以直接修改为.mp4,但需要注意的是,其编码格式为HEVC,如果有HEVC播放器可以直接播放\n
+    否则,需要转换编码方式,转为H264(更通用),转码用到pywechat内的ffmpeg.exe执行相应指令\n
+    视频长度等因素会影响执行时间,250个20s以内视频,耗时15min左右
+    Args:
+        recent:获取最近朋友圈视频的时间节点,可选值为'Today','Yesterday','Week','Month'分别获取当天,昨天,本周,本月
+        target_folder:导出的视频保存的路径,需要是文件夹
+        transcode:是否转码,转码后可以直接播放,默认为False
+    '''
+    def is_modified_today(file_path):
+        """
+        判断文件是否在今天被修改过
+        """
+        mod_time=os.path.getmtime(file_path)
+        now=time.time()
+        today_start=now-(now%86400)#今天的0点时间戳
+        return mod_time>=today_start
+
+    def is_modified_yesterday(file_path):
+        """
+        判断文件是否在昨天被修改过
+        """
+        mod_time=os.path.getmtime(file_path)
+        now=time.time()
+        today_start=now-(now%86400)#今天的0点时间戳
+        yesterday_start=today_start-86400#昨天的0点时间戳
+        return yesterday_start<=mod_time<today_start
+
+    def is_modified_this_week(file_path):
+        """
+        判断文件是否在本周被修改过
+        """
+        mod_time=os.path.getmtime(file_path)
+        now=time.time()
+        today_struct=time.localtime(now)
+        weekday=today_struct.tm_wday # 周一=0, 周日=6
+        #周一的0点时间戳
+        monday_start=now-(weekday*86400)-(now%86400)
+        return mod_time>=monday_start
+    
+    def is_video(dat_file):
+        is_video=False
+        #微信常见的图片与视频格式文件头
+        with open(dat_file, 'rb') as f:
+            encrypted_data = f.read()
+        #先不解密看一下是不是mp4类型文件即是否按照所给的header开头
+        for header in mp4_headers:
+            if encrypted_data.startswith(header):
+                is_video=True
+                break
+        return is_video
+    timestamp=time.strftime("%Y-%m")
+    recent_modes=['Today','Yesterday','Week','Month']
+    if recent not in recent_modes:
+        raise WrongParameterError
+    #所有常见的mp4文件的header
+    mp4_headers = {
+        b'\x00\x00\x00\x1cftypisom',#实测,视频文件的话这个格式是最常见的
+        b'\x00\x00\x00\x1cftypmp42',#iPhone12pro以下的ios手机拍摄视频格式是这个
+        b'\x00\x00\x00\x1cftypmp41', 
+        b'\x00\x00\x00\x20ftypisom',
+        b'\x00\x00\x00\x20ftpypisom'
+        }
+    if not target_folder:
+        target_folder=os.path.join(os.getcwd(),f'{recent}朋友圈视频导出')
+        os.makedirs(target_folder,exist_ok=True)
+        print(f'未传入文件夹路径,所有导出的微信朋友圈视频将保存至 {target_folder}')
+    if not os.path.isdir(target_folder):
+        raise NotFolderError(f'给定路径不是文件夹,无法导入保存聊天文件')
+    temp=[]
+    sns_cache=os.path.join(Tools.where_SnsCache_folder(),timestamp)
+    with os.scandir(sns_cache) as entries:
+        for entry in entries:
+            mod_time=entry.stat().st_mtime
+            temp.append((entry.name, mod_time))
+    #按照修改时间对filenames排序
+    filenames=[file[0] for file in sorted(temp, key=lambda x: x[1], reverse=True)]
+    #_t结尾的是缩略图,无论是视频还是图片都不需要
+    files=[os.path.join(sns_cache,filename) for filename in filenames if not filename.endswith('_t')]
+    videos=list(filter(is_video,files))
+    if recent=='Today':
+        videos=list(filter(is_modified_today,videos))
+    if recent=='Yesterday':
+        videos=list(filter(is_modified_yesterday,videos))
+    if recent=='Week':
+        videos=list(filter(is_modified_this_week,videos))
+    if videos:
+        transcodes=[transcode]*len(videos)
+        folders=[target_folder]*len(videos)
+        names=list(map(str, range(1,len(videos))))
+        video_args_list=list(zip(videos,folders,names,transcodes))
+        #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
+        with ThreadPoolExecutor() as executor:
+            executor.map(lambda args: dat_to_video(*args), video_args_list)
+    if not videos:
+        print(f'{recent}朋友圈没有视频可导出')
+
+def export_moments_cache(year:str=time.strftime('%Y'),month:str=None,target_folder:str=None):
+    '''
+    该函数用来快速导出微信朋友圈内的图片与视频,注意,考虑到时间效率,视频默认不转码\n
+    但仍以mp4格式保存,如需要播放可以使用utils内的transcode函数来转换编码格式
+    Args:
+        year:年份,除非手动删除否则朋友圈文件持续保存,格式:YYYY:2025,2024
+        month:月份,微信朋友圈内的文件是按照xxxx年-xx月分批存储的格式:XX:06
+        target_folder:导出的图片与视频保存的位置,需要是文件夹
+    '''
+    def is_video(dat_file):
+        is_video=False
+        #微信常见的图片与视频格式文件头
+        with open(dat_file, 'rb') as f:
+            encrypted_data = f.read()
+        #先不解密看一下是不是mp4类型文件即是否按照所给的header开头
+        for header in mp4_headers:
+            if encrypted_data.startswith(header):
+                is_video=True
+                break
+        return is_video
+
+    def is_image(dat_file):
+        is_image=True
+        #微信常见的图片与视频格式文件头
+        with open(dat_file, 'rb') as f:
+            encrypted_data = f.read()
+        #先不解密看一下是不是mp4类型文件即是否按照所给的header开头
+        for header in mp4_headers:
+            if encrypted_data.startswith(header):
+                is_image=False
+                break
+        return is_image
+
+    def classfiy(folder):
+        files=[]
+        with os.scandir(os.path.join(sns_cache,folder)) as entries:
+            for entry in entries:
+                mod_time=entry.stat().st_mtime
+                files.append((entry.name, mod_time))
+        #按照修改时间对filenames排序
+        files=[os.path.join(sns_cache,folder,file[0]) for file in sorted(files, key=lambda x: x[1], reverse=True)]
+        videos=list(filter(is_video,files))
+        images=list(filter(is_image,files))
+        return images,videos
+    
+    folder_name=f'{year}-{month}微信朋友圈图片视频导出' if month else f'{year}微信朋友圈图片视频导出' 
+    if not target_folder:
+        os.makedirs(name=folder_name,exist_ok=True)
+        target_folder=os.path.join(os.getcwd(),folder_name)
+        print(f'未传入文件夹路径,所有导出的朋友圈图片与视频将保存至 {target_folder}')
+    if not os.path.isdir(target_folder):
+        raise NotFolderError(f'给定路径不是文件夹,无法导入保存聊天文件')
+     #所有常见的mp4文件的header
+    mp4_headers = {
+        b'\x00\x00\x00\x1cftypisom',#实测,视频文件的话这个格式是最常见的
+        b'\x00\x00\x00\x1cftypmp42',#iPhone12pro以下的ios手机拍摄视频格式是这个
+        b'\x00\x00\x00\x1cftypmp41', 
+        b'\x00\x00\x00\x20ftypisom',
+        b'\x00\x00\x00\x20ftpypisom'
+        }
+    videos_count=0
+    images_count=0
+    videos_folder=os.path.join(target_folder,'朋友圈视频')
+    images_folder=os.path.join(target_folder,'朋友圈图片')
+    os.makedirs(videos_folder,exist_ok=True)
+    os.makedirs(images_folder,exist_ok=True)
+    videos_exported_folder=videos_folder
+    images_exported_folder=images_folder
+    sns_cache=Tools.where_SnsCache_folder()
+    folders=os.listdir(sns_cache)
+    #先找到所有以年份开头的文件夹,并将得到的文件夹名字与其根目录chatfile_folder这个路径join
+    filtered_folders=[folder for folder in folders if folder.startswith(year)]
+    if month:
+        #如果有月份传入，那么在上一步基础上根据月份筛选
+        filtered_folders=[folder for folder in filtered_folders if folder.endswith(month)]
+    for folder in filtered_folders:#遍历筛选后的每个文件夹
+        images,videos=classfiy(folder)
+        if videos:
+            videos_count+=len(videos)
+            if not month:
+                videos_exported_folder=os.path.join(videos_folder,folder)
+                os.makedirs(videos_exported_folder,exist_ok=True)
+            folders=[videos_exported_folder]*len(videos)
+            names=list(map(str, range(1,len(videos)+1)))
+            transcodes=[False]*len(videos)
+            videos_args_list=list(zip(videos,folders,names,transcodes))
+            with ThreadPoolExecutor() as executor:
+                executor.map(lambda args: dat_to_video(*args), videos_args_list)
+        if images:
+            images_count+=len(images)
+            if not month:
+                images_exported_folder=os.path.join(images_folder,folder)
+                os.makedirs(images_exported_folder,exist_ok=True)
+            folders=[images_exported_folder]*len(images)
+            names=list(map(str, range(1,len(images)+1)))
+            image_args_list=list(zip(images,folders,names))
+            with ThreadPoolExecutor() as executor:
+                executor.map(lambda args: decrypt_image_dat(*args), image_args_list)
+    print(f'已导出{videos_count+images_count}个文件至:{target_folder},图片:{images_count}张，未转码视频:{videos_count}个')
+
+
+def collections_reminder(duration:str,broadcast:bool=True,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->tuple[list[str],list[str],list[str]]:
+    '''
+    该函数用来持续监听微信收款助手的收款信息\n
+    该函数运行打开微信收款助手后自动最小化,不会影响键鼠操作\n
+    但千万不要手动关掉微信收款助手界面,否则会产生各种错误！
+    Args:
+        duration:监听持续时长,格式:'s','min','h'单位:s/秒,min/分,h/小时
+        broadcast:是否语音播报微信收款信息,与商家收款播报内容一致
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面开启时是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
+    Returns:
+        accounts:微信支付收款助手的记账信息列表
+    Examples:
+        ```
+        from pywechat import collections_reminder
+        collections_reminder(duration='1h',broadcast=True)
+        ```
+    '''
+    def pull_messages(number):
+        chatList=chat_window.child_window(**Main_window.FriendChatList)#聊天区域内的消息列表
+        scrollable=Tools.is_VerticalScrollable(chatList)
+        viewMoreMesssageButton=chat_window.child_window(**Buttons.CheckMoreMessagesButton)#查看更多消息按钮
+        if len(chatList.children(control_type='ListItem'))==0:#没有聊天记录直接返回空列表:
+            return []
+        ListItems=[message for message in chatList.children(control_type='ListItem') if message.window_text()!=Buttons.CheckMoreMessagesButton['title']]#产看更多消息内部也有按钮,所以需要筛选一下
+        ListItems=[message for message in ListItems if message.descendants(control_type='Text',title='个人收款服务')]
+        #点击聊天区域侧边栏和头像之间的位置来激活滑块,不直接main_window.click_input()是为了防止点到消息
+        x,y=chatList.rectangle().left+8,(main_window.rectangle().top+main_window.rectangle().bottom)//2#
+        if len(ListItems)>=number:#聊天区域内部不需要遍历就可以获取到的消息数量大于number条
+            ListItems=ListItems[-number:]#返回从后向前数number条消息
+            return ListItems
+        if len(ListItems)<number:#
+            chat_window.maximize()
+            ##########################################################
+            if scrollable:
+                mouse.click(coords=(chatList.rectangle().right-10,chatList.rectangle().bottom-5))
+                while len(ListItems)<number:
+                    chatList.iface_scroll.SetScrollPercent(verticalPercent=0.0,horizontalPercent=1.0)#调用SetScrollPercent方法向上滚动,verticalPercent=0.0表示直接将scrollbar一下子置于顶部
+                    mouse.scroll(coords=(x,y),wheel_dist=1000)
+                    ListItems=[message for message in chatList.children(control_type='ListItem') if message.window_text()!=Buttons.CheckMoreMessagesButton['title']]
+                    ListItems=[message for message in ListItems if message.descendants(control_type='Text',title='个人收款服务')]
+                    if not viewMoreMesssageButton.exists():#向上遍历时如果查看更多消息按钮不在存在说明已经到达最顶部,没有必要继续向上,直接退出循环
+                        break
+                ListItems=ListItems[-number:] 
+            else:#无法滚动,说明就这么多了,有可能是刚添加好友或群聊或者是清空了聊天记录,只发了几条消息
+                ListItems=ListItems[-number:] 
+            return ListItems
+
+    def parse(ListItem):
+        info=''#info是微信支付收款界面内白色方块内所有收款信息的文本，也就是texts[2:7]
+        buttons=[button for button in ListItem.descendants(control_type='Text')]
+        texts=[button for button in buttons if button.window_text()!='']
+        #只需要有用的收款文本,其他的什么查看详情等按钮的文本不需要
+        for button in texts[2:7]:
+            info+=button.window_text()
+        money=buttons[4].window_text()#收款金额
+        return info,money
+
+    duration=match_duration(duration)#将's','min','h'转换为秒
+    end_timestamp=time.time()+duration#根据秒数计算截止时间
+    if not duration:#不按照指定的时间格式输入,需要提前中断退出
+        raise TimeNotCorrectError
+    #打开微信收款助手的对话框,返回值为编辑消息框和主界面
+    try:
+        desktop=Desktop(**Independent_window.Desktop)
+        main_window=Tools.open_dialog_window(friend='微信收款助手',wechat_path=wechat_path,is_maximize=is_maximize,search_pages=0)[1]
+        message_list=main_window.child_window(**Main_window.ConversationList)
+        selected_item=[item for item in message_list.children(control_type='ListItem') if item.is_selected()][0]
+        selected_item.double_click_input()
+        chat_window={'title':'微信收款助手','class_name':'ChatWnd','framework_id':'Win32'}
+        chat_window=desktop.window(**chat_window)
+        chat_window.minimize()
+        if close_wechat:
+            main_window.close()
+    except NoSuchFriendError:
+        raise NoPaymentLedgerError 
+    recorded=[]
+    accounts=[]
+    initialMessages=pull_messages(number=2)
+    recorded.extend(initialMessages)
+    Systemsettings.open_listening_mode(full_volume=False)
+    while time.time()<end_timestamp:
+        newMessage=pull_messages(number=1)[0]
+        #消息列表内的最后一条消息(listitem)不等于刚打开聊天界面时的最后几条消息(listitem)
+        if newMessage not in recorded:
+            info,money=parse(newMessage)
+            accounts.append(info)
+            if broadcast:
+                Systemsettings.speaker('微信收款'+money)
+            recorded.append(newMessage)
+    chat_window.close()
+    Systemsettings.close_listening_mode()
+    return accounts
