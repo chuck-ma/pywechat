@@ -44,11 +44,11 @@ class NotFileError(Exception):
 class NotFolderError(Exception):
     def __init__(self, Error='给定路径不是文件夹！若需发送多个文件给好友,请将所有待发送文件置于文件夹内,并在此方法中传入文件夹路径'):
         super().__init__(Error)
-class CantCreateGroupError(Exception):
-    def __init__(self, Error='三人不成群,除自身外最少还需要两人才能建群！'):
-        super().__init__(Error)
 class NoSuchFriendError(Exception):
     def __init__(self, Error='好友或群聊备注有误！查无此人！请提供准确且完整的好友或群聊备注!'):
+        super().__init__(Error)
+class NoGroupsError(Exception):
+    def __init__(self,Error='还未加入过任何群聊,无法获取群聊信息!'):
         super().__init__(Error)
 class SameNameError(Exception):
     def __init__(self, Error='待修改的群名需与先前的群名不同才可修改！'):
@@ -62,11 +62,29 @@ class EmptyNoteError(Exception):
 class CantSendEmptyMessageError(Exception):
     def __init__(self, Error='不能发送空白消息！'):
         super().__init__(Error)
+class CantCreateGroupError(Exception):
+    def __init__(self, Error='除自身外至少两人以上才可以创建群聊!'):
+        super().__init__(Error)
 class WrongParameterError(Exception):
     def __init__(self, Error='state的取值应为open或close!'):
         super().__init__(Error)
 class NotInstalledError(Exception):
     def __init__(self, Error='未找到微信注册表路径,可能未安装3.9版本PC微信或手动删除了注册表!'):
+        super().__init__(Error)
+class NoSubScribedOAError(Exception):
+    def __init__(self, Error='从未关注过任何公众号,无法获取已关注的公众号名称！'):
+        super().__init__(Error)
+class NoPaymentLedgerError(Exception):
+    def __init__(self, Error='还未开通微信收款助手功能,请在微信移动端关注微信收款助手并完成商家认证后再使用该功能！'):
+        super().__init__(Error)
+class NoWecomFriendsError(Exception):
+    def __init__(self, Error='未查找到企业微信好友,无法获取企业微信好友信息！'):
+        super().__init__(Error)
+class NoChatsError(Exception):
+    def __init__(self,Error='会话列表为空,无最近聊天对象!'):
+        super().__init__(Error)
+class NoMomentsError(Exception):
+    def __init__(self,Error='朋友圈列表为空,无发获取朋友圈内容!'):
         super().__init__(Error)
 class NotFriendError(Exception):
     def __init__(self, Error):
