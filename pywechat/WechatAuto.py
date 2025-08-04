@@ -5229,7 +5229,7 @@ class Moments():
             images=list(filter(is_modified_this_week,images))
         if images:
             folders=[target_folder]*len(images)
-            names=list(map(str, range(1,len(images))))
+            names=list(map(str, range(1,len(images)+1)))
             image_args_list=list(zip(images,folders,names))
             #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
             with ThreadPoolExecutor() as executor:
@@ -5329,7 +5329,7 @@ class Moments():
         if videos:
             transcodes=[transcode]*len(videos)
             folders=[target_folder]*len(videos)
-            names=list(map(str, range(1,len(videos))))
+            names=list(map(str, range(1,len(videos)+1)))
             video_args_list=list(zip(videos,folders,names,transcodes))
             #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
             with ThreadPoolExecutor() as executor:
@@ -12605,7 +12605,7 @@ def export_recent_moments_images(recent:Literal['Today','Yesterday','Week','Mont
         images=list(filter(is_modified_this_week,images))
     if images:
         folders=[target_folder]*len(images)
-        names=list(map(str, range(1,len(images))))
+        names=list(map(str, range(1,len(images)+1)))
         image_args_list=list(zip(images,folders,names))
         #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
         with ThreadPoolExecutor() as executor:
@@ -12704,7 +12704,7 @@ def export_recent_moments_videos(recent:Literal['Today','Yesterday','Week','Mont
     if videos:
         transcodes=[transcode]*len(videos)
         folders=[target_folder]*len(videos)
-        names=list(map(str, range(1,len(videos))))
+        names=list(map(str, range(1,len(videos)+1)))
         video_args_list=list(zip(videos,folders,names,transcodes))
         #max_workers默认为min(32, (os.cpu_count() or 1) + 4)
         with ThreadPoolExecutor() as executor:
