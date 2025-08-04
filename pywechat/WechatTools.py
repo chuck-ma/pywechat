@@ -1738,54 +1738,86 @@ class Tools():
         return folder_path
 
     @staticmethod
-    def where_SnsCache_folder(open_folder:bool=False)->path:
-        '''
-        该方法用来获取微信朋友圈图片视频缓存路径(文件夹)\n
-        当微信未登录时只返回根目录(Wechat Files)\n
-        当微信登录时返回缓存路径
-        Args:
-            open_folder:是否打开朋友圈图片视频缓存路径,默认不打开
-        Returns:
-            folder_path:朋友圈图片视频缓存路径
-        '''
-        if not Tools.is_wechat_installed():
-            raise NotInstalledError#没找到微信注册表基地址
-        folder_path=''
-        reg_path=r"Software\Tencent\WeChat"
-        Userdocumens=os.path.expanduser(r'~\Documents')#c:\Users\用户名\Documents\
-        default_path=os.path.join(Userdocumens,'WeChat Files')#微信聊天记录存放根目录
-        if os.path.exists(default_path):
-            root_dir=default_path
-        else:
-            key=winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
-            try:
-                value=winreg.QueryValueEx(key,"FileSavePath")[0]
-            except Exception:
-                value=winreg.QueryValueEx(key,"InstallPath")[0]
-            finally:
-                if value=='MyDocument:':#注册表的值是MyDocument:的话
-                    #路径是在c:\Users\用户名\Documents\WeChat Files\wxid_abc12356\FileStorage\Files下
-                    #wxid是当前登录的微信号,通过内存映射文件获取，必须是登录状态，不然最多只能获取到WCchat Files
-                    root_dir=os.path.join(Userdocumens,'WeChat Files')#微信聊天记录存放根目录
-                else:
-                    root_dir=os.path.join(value,r'WeChat Files')
-                    if not os.path.exists(root_dir):
-                        root_dir=os.path.join(value,r'\WeChat Files')
-
-        wxid=Tools.find_current_wxid()
-        if wxid:
-            folder_path=os.path.join(root_dir,wxid,'FileStorage','Sns','Cache')
-        else:
-            folder_path=root_dir
-            wxid_dirs=[os.path.join(folder_path,dir) for dir in os.listdir(folder_path) if re.match(r'wxid_\w+\d+',dir)]
-            if len(wxid_dirs)==1:
-                folder_path=os.path.join(root_dir,wxid_dirs[0],'FileStorage','Sns','Cache')
-            if len(wxid_dirs)>1:
-                print(f'当前设备登录过{len(wxid_dirs)}个微信账号,未登录微信只能获取到根目录!请登录后尝试!')
-            print(f'当前设备所有登录过的微信账号存放数据的文件夹路径为:{wxid_dirs}')
-        if open_folder and folder_path:
-            os.startfile(folder_path)
-        return folder_path
+    # def where_SnsCache_folder(open_folder:bool=False)->path:
+    #     '''
+    #     该方法用来获取微信朋友圈图片视频缓存路径(文件夹)\n
+    #     当微信未登录时只返回根目录(Wechat Files)\n
+    #     当微信登录时返回缓存路径
+    #     Args:
+    #         open_folder:是否打开朋友圈图片视频缓存路径,默认不打开
+    #     Returns:
+    #         folder_path:朋友圈图片视频缓存路径
+    #     '''
+    #     if not Tools.is_wechat_installed():
+    #         raise NotInstalledError#没找到微信注册表基地址
+    #     folder_path=''
+    #     reg_path=r"Software\Tencent\WeChat"
+    #     Userdocumens=os.path.expanduser(r'~\Documents')#c:\Users\用户名\Documents\
+    #     default_path=os.path.join(Userdocumens,'WeChat Files')#微信聊天记录存放根目录
+    #     if os.path.exists(default_path):
+    #         root_dir=default_path
+    #     else:
+    #         key=winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path)
+    #         try:
+    #             value=winreg.QueryValueEx(key,"FileSavePath")[0]
+    #         except Exception:
+    #             value=winreg.QueryValueEx(key,"InstallPath")[0]
+    #         finally:
+    #             if value=='MyDocument:':#注册表的值是MyDocument:的话
+    #                 #路径是在c:\Users\用户名\Documents\WeChat Files\wxid_abc12356\FileStorage\Files下
+    #                 #wxid是当前登录的微信号,通过内存映射文件获取，必须是登录状态，不然最多只能获取到WCchat Files
+    #                 root_dir=os.path.join(Userdocumens,'WeChat Files')#微信聊天记录存放根目录
+    #             else:
+    #                 root_dir=os.path.join(value,r'WeChat Files')
+    #                 if not os.path.exists(root_dir):
+    #                     root_dir=os.path.join(value,r'\WeChat Files')
+    #
+    #     wxid=Tools.find_current_wxid()
+    #     if wxid:
+    #         folder_path=os.path.join(root_dir,wxid,'FileStorage','Sns','Cache')
+    #     else:
+    #         folder_path=root_dir
+    #         wxid_dirs=[os.path.join(folder_path,dir) for dir in os.listdir(folder_path) if re.match(r'wxid_\w+\d+',dir)]
+    #         if len(wxid_dirs)==1:
+    #             folder_path=os.path.join(root_dir,wxid_dirs[0],'FileStorage','Sns','Cache')
+    #         if len(wxid_dirs)>1:
+    #             print(f'当前设备登录过{len(wxid_dirs)}个微信账号,未登录微信只能获取到根目录!请登录后尝试!')
+    #         print(f'当前设备所有登录过的微信账号存放数据的文件夹路径为:{wxid_dirs}')
+    #     if open_folder and folder_path:
+    #         os.startfile(folder_path)
+    #     return folder_path
+    
+    # 运行报错FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'E:\\WeChat Files\\wxid_2j2lh284o44122\\FileStorage\\Sns\\Cache\\2025-08'
+    # 然后本地发现没有 FileSavePath的注册表（可以使用reg query "HKCU\Software\Tencent\WeChat"命令查看）
+    # 如果没有的话，修改思路为使用psutil遍历进程池，找到wechat.exe，
+    # 然后通过这个wechat.exe的内存中映射到的文件路径进行查找，微信启动后会一直用到本地的wechat files内的Msg内的数据库
+    # 这个数据库的路径与wechatFiles其实是同一个根路径，然后进行修改Msg替换FileStorage
+    def where_SnsCache_folder(open_folder: bool = False) -> str:
+        """
+        该方法通过内存映射文件来检测当前登录的wxid,使用时必须登录微信,否则返回空字符串
+        """
+        wechat_process = None
+        for process in psutil.process_iter(['pid', 'name']):
+            if process.info['name'] == 'WeChat.exe':
+                wechat_process = process
+                break
+        if not wechat_process:
+            return ''
+        # 只要微信登录了,就一定会用到本地聊天文件保存位置:Wechat Files下的一个wxid开头的文件下的Msg,
+        # 这个文件夹里包含了聊天纪录数据等内容
+        # wechat_process是进程句柄,通过这个进程句柄的memory_maps方法可以实现
+        # 内存映射文件检测
+        base_folder = ''
+        for mem_map in wechat_process.memory_maps():
+            if 'Msg' in mem_map.path:
+                base_folder = mem_map.path
+                # 获取到的路径的basename是含\Msg\xxx.db，我们只需要他的dir就可以然后把Msg换为FileStorage
+                base_folder = os.path.dirname(base_folder).replace('Msg', 'FileStorage')
+                break
+        sns_cache = os.path.join(base_folder, 'Sns')
+        if open_folder:
+            os.startfile(sns_cache)
+        return sns_cache
 
     @staticmethod
     def NativeSaveFile(folder_path)->None:
@@ -3839,3 +3871,4 @@ def parse_moments_content(ListItem:ListItemWrapper)->dict[str]:
     '点赞者':likes,'评论内容':comments,'图片数量':image_num,'视频数量':video_num,
     '卡片链接':cardlink,'卡片链接内容':cardlink_content,'视频号':channel,'公众号链接内容':official_account_link}
     return parse_result
+
