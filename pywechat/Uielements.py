@@ -22,28 +22,6 @@ main_window.child_window(**searchbar).type_keys('你好!')
 import winreg
 from pywechat.Errors import NotInstalledError
 #################################################################
-#微信主界面:
-#==========================================================================================
-#工具栏 |搜索|       |+|添加好友              ···聊天信息按钮  #
-#                                             |
-#|头像|   |          |                            |
-#|聊天|   |          |                            |
-#|通讯录|  | 会话列表     |                            |
-#|收藏|   |          |    聊天界面                    |
-#|聊天文件| |          |                            |
-#|朋友圈|  |          |                            |
-#|视频号|  |          |                            |
-#|看一看|  |          |                            |
-#|搜一搜|  |          |                            |
-#      |          |                            |
-#      |          |                            |
-#      |          |                            | 
-#      |          |---------------------------------------------------------
-#小程序面板 |          |  表情 聊天文件 截图 聊天记录           |
-#|手机|   |          |                            |
-#|设置及其他||          |                            |
-#===========================================================================================
-
 def language_detector():
     """
     查询注册表来检测当前微信的语言版本\n
@@ -521,7 +499,6 @@ class Menus():
             self.FriendProfileMenu={'title':'','control_type':'Menu','class_name':'CMenuWnd','framework_id':'Win32'}#好友个人简介界面内点击三个点之后弹出的菜单
            
 
-
 class MenuItems():
     def __init__(self,language=language):
         self.language=language
@@ -532,7 +509,7 @@ class MenuItems():
             self.BlockMenuItem={'title':'加入黑名单','control_type':'MenuItem'}#好友设置菜单栏里的加入黑名单
             self.EditContactMenuItem={'title':'设置备注和标签','control_type':'MenuItem'}#好友设置菜单栏里的设置备注和标签
             self.ShareContactMenuItem={'found_index':2,'control_type':'MenuItem'}#好友设置菜单栏里的推荐给朋友，这里使用title_re因为实际上中文版中微信是会根据性别来决定这个控件名称
-            self.DeleteMenuItem={'title':'删除联系人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
+            self.DeleteContactMenuItem={'title':'删除联系人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
             self.UnBlockMenuItem={'title':'移出黑名单','control_type':'MenuItem'}#好友设置菜单栏里的移出黑名单
             self.UnStarMenuItem={'title':'不再设为星标朋友','control_type':'MenuItem'}#好友设置菜单栏里的不再设为星标朋友
             self.Tickle={'title':'拍一拍','control_type':'MenuItem'}#拍一拍好友
@@ -559,7 +536,7 @@ class MenuItems():
             self.BlockMenuItem={'title':'Block','control_type':'MenuItem'}#好友设置菜单栏里的加入黑名单
             self.EditContactMenuItem={'title':'Edit Contact','control_type':'MenuItem'}#好友设置菜单栏里的设置备注和标签
             self.ShareContactMenuItem={'found_index':2,'control_type':'MenuItem'}#好友设置菜单栏里的推荐给朋友，这里使用title_re因为实际上中文版中微信是会根据性别来决定这个控件名称
-            self.DeleteMenuItem={'title':'Delete','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
+            self.DeleteContactMenuItem={'title':'Delete Contact','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
             self.UnBlockMenuItem={'title':'Unblock','control_type':'MenuItem'}#好友设置菜单栏里的移出黑名单
             self.UnStarMenuItem={'title':'Unstar','control_type':'MenuItem'}#好友设置菜单栏里的不再设为星标朋友
             self.Tickle={'title':'Tickle','control_type':'MenuItem'}#拍一拍好友
@@ -586,7 +563,7 @@ class MenuItems():
             self.BlockMenuItem={'title':'加入黑名單','control_type':'MenuItem'}#好友设置菜单栏里的加入黑名单
             self.EditContactMenuItem={'title':'設定備註和標籤','control_type':'MenuItem'}#好友设置菜单栏里的设置备注和标签
             self.ShareContactMenuItem={'found_index':2,'control_type':'MenuItem'}#好友设置菜单栏里的推荐给朋友，这里使用title_re因为实际上中文版中微信是会根据性别来决定这个控件名称
-            self.DeleteMenuItem={'title':'刪除聯絡人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
+            self.DeleteContactMenuItem={'title':'刪除聯絡人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
             self.UnBlockMenuItem={'title':'移除黑名單','control_type':'MenuItem'}#好友设置菜单栏里的移出黑名单
             self.UnStarMenuItem={'title':'不再設為超級好友','control_type':'MenuItem'}#好友设置菜单栏里的不再设为星标朋友
             self.Tickle={'title':'拍一拍','control_type':'MenuItem'}#拍一拍好友
@@ -606,6 +583,7 @@ class MenuItems():
             self.ShowInFolderMenuItem={'title':'在資料夾中顯示','control_type':'MenuItem'}#右键消息文件后的在文件夹中显示选项
             self.EnterLedgerMenuItem={'title':'进入小账本','control_type':'MenuItem'}
             self.PaymentRecordsMenuItem={'title':'收款记录','control_type':'MenuItem'}
+
 
 class CheckBoxes():
     def __init__(self,language=language):
@@ -984,3 +962,4 @@ class SpecialMessages():
             self.FileMessage={'title':'[檔案]','control_type':'ListItem'}
             self.ChatHistoryMessage={'title':'[聊天記錄]','control_type':'ListItem'}
             self.AudioPattern=r'\[語音\]\d+秒'
+
