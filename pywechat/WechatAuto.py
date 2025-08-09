@@ -2391,47 +2391,22 @@ class FriendSettings():
             main_window.close()
     
     @staticmethod
-    def add_new_friend(phone_number:str=None,wechat_number:str=None,request_content:str=None,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
+     def add_new_friend(wechat_number:str,request_content:str=None,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
         '''
-        该方法用来添加新朋友
+        该方法用来添加新朋友,微信对添加好友的检测机制比较严格,建议添加好友频率不要太高\n
         Args:
-            phone_number:手机号
             wechat_number:微信号
             wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
                 尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
                 传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
             is_maximize:微信界面是否全屏,默认全屏。
             close_wechat:任务结束后是否关闭微信,默认关闭
-        注意:手机号与微信号至少要有一个!
         '''
-        desktop=Desktop(**Independent_window.Desktop)
-        main_window=Tools.open_contacts(wechat_path,is_maximize=is_maximize)
-        add_friend_button=main_window.child_window(**Buttons.AddNewFriendButon)
-        add_friend_button.click_input()
-        search_new_friend_bar=main_window.child_window(**Main_window.SearchNewFriendBar)
-        search_new_friend_bar.click_input()
-        if phone_number and not wechat_number:
-            Systemsettings.copy_text_to_windowsclipboard(phone_number)
-            pyautogui.hotkey('ctrl','v')
-        elif wechat_number and phone_number:
-            Systemsettings.copy_text_to_windowsclipboard(wechat_number)
-            pyautogui.hotkey('ctrl','v')
-        elif not phone_number and wechat_number:
-            Systemsettings.copy_text_to_windowsclipboard(wechat_number)
-            pyautogui.hotkey('ctrl','v')
-        else:
-            if close_wechat:
-                main_window.close()
-            raise NoWechat_number_or_Phone_numberError
-        search_new_friend_result=main_window.child_window(**Main_window.SearchNewFriendResult)
-        search_new_friend_result.child_window(**Texts.SearchContactsResult).click_input()
-        time.sleep(1.5)
-        profile_pane=desktop.window(**Independent_window.ContactProfileWindow)
-        add_to_contacts=profile_pane.child_window(**Buttons.AddToContactsButton)
-        if add_to_contacts.exists():
-            add_to_contacts.click_input()
+        def send_request():
             add_friend_request_window=main_window.child_window(**Main_window.AddFriendRequestWindow)
+            #若对方开启不通过验证加好友的话不会出现这个面板
             if add_friend_request_window.exists():
+                Tools.move_window_to_center(Window=Main_window.AddFriendRequestWindow)
                 if request_content:
                     request_content_edit=add_friend_request_window.child_window(**Edits.RequestContentEdit)
                     request_content_edit.click_input()
@@ -2440,33 +2415,37 @@ class FriendSettings():
                     request_content_edit=add_friend_request_window.child_window(title='',control_type='Edit',found_index=0)
                     Systemsettings.copy_text_to_windowsclipboard(request_content)
                     pyautogui.hotkey('ctrl','v')
-                    confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
-                    confirm_button.click_input()
-                    time.sleep(3)
-                    if language=='简体中文':
-                        cancel_button=main_window.child_window(title='取消',control_type='Button',found_index=0)
-                    if language=='英文':
-                        cancel_button=main_window.child_window(title='Cancel',control_type='Button',found_index=0)
-                    cancel_button.click_input()
-                    if close_wechat:
-                        main_window.close()
-                else:
-                    confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
-                    confirm_button.click_input()
-                    time.sleep(3)
-                    if language=='简体中文':
-                        cancel_button=main_window.child_window(title='取消',control_type='Button',found_index=0)
-                    if language=='英文':
-                        cancel_button=main_window.child_window(title='Cancel',control_type='Button',found_index=0)
-                    cancel_button.click_input()
-                    if close_wechat:
-                        main_window.close() 
+                confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
+                confirm_button.click_input()
+                main_window.click_input()
+                if close_wechat:
+                    main_window.close()
+        desktop=Desktop(**Independent_window.Desktop)
+        main_window=Tools.open_contacts(wechat_path,is_maximize=is_maximize)
+        add_friend_button=main_window.child_window(**Buttons.AddNewFriendButon)
+        add_friend_button.click_input()
+        search_new_friend_bar=main_window.child_window(**Main_window.SearchNewFriendBar)
+        search_new_friend_bar.click_input()
+        Systemsettings.copy_text_to_windowsclipboard(wechat_number)
+        pyautogui.hotkey('ctrl','v')
+        search_new_friend_result=main_window.child_window(**Main_window.SearchNewFriendResult)
+        search_new_friend_result.child_window(**Texts.SearchContactsResult).double_click_input()
+        profile_pane=desktop.window(**Independent_window.ContactProfileWindow)
+        if profile_pane.exists():
+            profile_pane=Tools.move_window_to_center(handle=profile_pane.handle)
+            add_to_contacts=profile_pane.child_window(**Buttons.AddToContactsButton)
+            if add_to_contacts.exists():
+                add_to_contacts.click_input()
+                send_request()
+            else:
+                profile_pane.close()
+                if close_wechat:
+                    main_window.close()
+                raise AlreadyInContactsError
         else:
-            time.sleep(1)
-            profile_pane.close()
-            if close_wechat:
-                main_window.close()
-            raise AlreadyInContactsError
+            raise NoSuchFriendError(f'无法根据给定的 {wechat_number} 微信号查找到好友!')
+        if close_wechat:
+            main_window.close()
 
     @staticmethod
     def change_friend_remark(friend:str,remark:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
@@ -7870,47 +7849,22 @@ def delete_friend(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize
     if close_wechat:
         main_window.close()
     
-def add_new_friend(phone_number:str=None,wechat_number:str=None,request_content:str=None,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+ def add_new_friend(wechat_number:str,request_content:str=None,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来添加新朋友,微信对添加好友的检测机制比较严格,建议添加好友频率不要太高\n
     Args:
-        phone_number:手机号
         wechat_number:微信号
         wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
             尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
             传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
         is_maximize:微信界面是否全屏,默认全屏。
         close_wechat:任务结束后是否关闭微信,默认关闭
-    注意:手机号与微信号至少要有一个!
     '''
-    desktop=Desktop(**Independent_window.Desktop)
-    main_window=Tools.open_contacts(wechat_path,is_maximize=is_maximize)
-    add_friend_button=main_window.child_window(**Buttons.AddNewFriendButon)
-    add_friend_button.click_input()
-    search_new_friend_bar=main_window.child_window(**Main_window.SearchNewFriendBar)
-    search_new_friend_bar.click_input()
-    if phone_number and not wechat_number:
-        Systemsettings.copy_text_to_windowsclipboard(phone_number)
-        pyautogui.hotkey('ctrl','v')
-    elif wechat_number and phone_number:
-        Systemsettings.copy_text_to_windowsclipboard(wechat_number)
-        pyautogui.hotkey('ctrl','v')
-    elif not phone_number and wechat_number:
-        Systemsettings.copy_text_to_windowsclipboard(wechat_number)
-        pyautogui.hotkey('ctrl','v')
-    else:
-        if close_wechat:
-            main_window.close()
-        raise NoWechat_number_or_Phone_numberError
-    search_new_friend_result=main_window.child_window(**Main_window.SearchNewFriendResult)
-    search_new_friend_result.child_window(**Texts.SearchContactsResult).click_input()
-    time.sleep(1.5)
-    profile_pane=desktop.window(**Independent_window.ContactProfileWindow)
-    add_to_contacts=profile_pane.child_window(**Buttons.AddToContactsButton)
-    if add_to_contacts.exists():
-        add_to_contacts.click_input()
+    def send_request():
         add_friend_request_window=main_window.child_window(**Main_window.AddFriendRequestWindow)
+        #若对方开启不通过验证加好友的话不会出现这个面板
         if add_friend_request_window.exists():
+            Tools.move_window_to_center(Window=Main_window.AddFriendRequestWindow)
             if request_content:
                 request_content_edit=add_friend_request_window.child_window(**Edits.RequestContentEdit)
                 request_content_edit.click_input()
@@ -7919,34 +7873,37 @@ def add_new_friend(phone_number:str=None,wechat_number:str=None,request_content:
                 request_content_edit=add_friend_request_window.child_window(title='',control_type='Edit',found_index=0)
                 Systemsettings.copy_text_to_windowsclipboard(request_content)
                 pyautogui.hotkey('ctrl','v')
-                confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
-                confirm_button.click_input()
-                time.sleep(3)
-                if language=='简体中文':
-                    cancel_button=main_window.child_window(title='取消',control_type='Button',found_index=0)
-                if language=='英文':
-                    cancel_button=main_window.child_window(title='Cancel',control_type='Button',found_index=0)
-                cancel_button.click_input()
-                if close_wechat:
-                    main_window.close()
-            else:
-                confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
-                confirm_button.click_input()
-                time.sleep(3)
-                if language=='简体中文':
-                    cancel_button=main_window.child_window(title='取消',control_type='Button',found_index=0)
-                if language=='英文':
-                    cancel_button=main_window.child_window(title='Cancel',control_type='Button',found_index=0)
-                cancel_button.click_input()
-                if close_wechat:
-                    main_window.close() 
+            confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
+            confirm_button.click_input()
+            main_window.click_input()
+            if close_wechat:
+                main_window.close()
+    desktop=Desktop(**Independent_window.Desktop)
+    main_window=Tools.open_contacts(wechat_path,is_maximize=is_maximize)
+    add_friend_button=main_window.child_window(**Buttons.AddNewFriendButon)
+    add_friend_button.click_input()
+    search_new_friend_bar=main_window.child_window(**Main_window.SearchNewFriendBar)
+    search_new_friend_bar.click_input()
+    Systemsettings.copy_text_to_windowsclipboard(wechat_number)
+    pyautogui.hotkey('ctrl','v')
+    search_new_friend_result=main_window.child_window(**Main_window.SearchNewFriendResult)
+    search_new_friend_result.child_window(**Texts.SearchContactsResult).double_click_input()
+    profile_pane=desktop.window(**Independent_window.ContactProfileWindow)
+    if profile_pane.exists():
+        profile_pane=Tools.move_window_to_center(handle=profile_pane.handle)
+        add_to_contacts=profile_pane.child_window(**Buttons.AddToContactsButton)
+        if add_to_contacts.exists():
+            add_to_contacts.click_input()
+            send_request()
+        else:
+            profile_pane.close()
+            if close_wechat:
+                main_window.close()
+            raise AlreadyInContactsError
     else:
-        time.sleep(1)
-        profile_pane.close()
-        if close_wechat:
-            main_window.close()
-        raise AlreadyInContactsError
-
+        raise NoSuchFriendError(f'无法根据给定的 {wechat_number} 微信号查找到好友!')
+    if close_wechat:
+        main_window.close()
 def change_friend_remark(friend:str,remark:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
     '''
     该函数用来修改好友详情页面内的备注\n
@@ -8946,30 +8903,37 @@ def add_friend_from_group(group_name:str,friend:str,request_content:str=None,sea
         is_maximize:微信界面是否全屏,默认全屏。
         close_wechat:任务结束后是否关闭微信,默认关闭
     '''
+    def send_request():
+        add_friend_request_window=main_window.child_window(**Main_window.AddFriendRequestWindow)
+        #若对方开启不通过验证加好友的话不会出现这个面板
+        if add_friend_request_window.exists():
+            Tools.move_window_to_center(Window=Main_window.AddFriendRequestWindow)
+            if request_content:
+                request_content_edit=add_friend_request_window.child_window(control_type='Edit',found_index=0)
+                request_content_edit.click_input()
+                pyautogui.hotkey('ctrl','a')
+                pyautogui.press('backspace')
+                request_content_edit=add_friend_request_window.child_window(title='',control_type='Edit',found_index=0)
+                Systemsettings.copy_text_to_windowsclipboard(request_content)
+                pyautogui.hotkey('ctrl','v')
+            confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
+            confirm_button.click_input()
+            main_window.click_input()
+            if close_wechat:
+                main_window.close()
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     search=group_chat_settings_window.child_window(**Edits.SearchGroupMemeberEdit)
     search.click_input()
     Systemsettings.copy_text_to_windowsclipboard(friend)
     pyautogui.hotkey('ctrl','v')
-    friend_butotn=group_chat_settings_window.child_window(title=friend,control_type='Button',found_index=1)
-    friend_butotn.double_click_input()
+    friend_button=group_chat_settings_window.child_window(title=friend,control_type='Button',found_index=0)
+    friend_button.click_input()
+    friend_button.double_click_input()
     contact_window=group_chat_settings_window.child_window(class_name='ContactProfileWnd',framework_id="Win32")
     add_to_contacts_button=contact_window.child_window(**Buttons.AddToContactsButton)
     if add_to_contacts_button.exists():
-        add_to_contacts_button.click_input()
-        add_friend_request_window=main_window.child_window(**Main_window.AddFriendRequestWindow)
-        request_content_edit=add_friend_request_window.child_window(**Edits.RequestContentEdit)
-        request_content_edit.click_input()
-        pyautogui.hotkey('ctrl','a')
-        pyautogui.press('backspace')
-        request_content_edit=add_friend_request_window.child_window(title='',control_type='Edit',found_index=0)
-        Systemsettings.copy_text_to_windowsclipboard(request_content)
-        pyautogui.hotkey('ctrl','v')
-        confirm_button=add_friend_request_window.child_window(**Buttons.ConfirmButton)
-        confirm_button.click_input()
-        time.sleep(5)
-        if close_wechat:
-            main_window.close()
+       add_to_contacts_button.click_input()
+       send_request()
     else:
         group_chat_settings_window.close()
         if close_wechat:
@@ -12909,3 +12873,30 @@ def collections_reminder(duration:str,broadcast:bool=True,wechat_path:str=None,i
     chat_window.close()
     Systemsettings.close_listening_mode()
     return accounts
+
+def check_my_info(wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->dict[str]:
+    '''
+    该函数用来查看个人信息
+    Args:
+        wechat_path:微信的WeChat.exe文件地址,主要针对未登录情况而言,一般而言不需要传入该参数,因为pywechat会通过查询环境变量,注册表等一些方法\n
+            尽可能地自动找到微信路径,然后实现无论PC微信是否启动都可以实现自动化操作,除非你的微信路径手动修改过,发生了变动的话可能需要\n
+            传入该参数。最后,还是建议加入到环境变量里吧,这样方便一些。加入环境变量可调用set_wechat_as_environ_path函数\n
+        is_maximize:微信界面开启时是否全屏,默认全屏。
+        close_wechat:任务结束后是否关闭微信,默认关闭
+    Returns:
+        myinfo:个人信息字典{'昵称':,'微信号':,'wxid':,'地区':}
+    '''
+    main_window=Tools.open_wechat(wechat_path=wechat_path,is_maximize=is_maximize)
+    wxid=Tools.find_current_wxid()
+    myself_button=main_window.child_window(**Buttons.MySelfButton)
+    myself_button.click_input()
+    info_pane=main_window.child_window(**Panes.FriendProfilePane)
+    texts=info_pane.descendants(control_type='Text')
+    info=[text.window_text() for text in texts]
+    myinfo={'昵称':info[0],'微信号':info[2],'wxid':wxid}
+    info_pane.close()
+    if len(info)==5:
+        myinfo['地区']=info[4]
+    if close_wechat:
+        main_window.close()
+    return myinfo
