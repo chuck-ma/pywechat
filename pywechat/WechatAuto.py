@@ -2381,12 +2381,13 @@ class FriendSettings():
             close_wechat:任务结束后是否关闭微信,默认关闭
         '''
         menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
-        delete_friend_item=menu.child_window(**MenuItems.DeleteMenuItem)
+        delete_friend_item=menu.child_window(**MenuItems.DeleteContactMenuItem)
         delete_friend_item.click_input()
         confirm_window=friend_settings_window.child_window(**Panes.ConfirmPane)
         confirm_buton=confirm_window.child_window(**Buttons.DeleteButton)
         confirm_buton.click_input()
         time.sleep(1)
+        main_window.click_input()
         if close_wechat:
             main_window.close()
     
@@ -7827,9 +7828,9 @@ def clear_friend_chat_history(friend:str,search_pages:int=5,wechat_path:str=None
         main_window.close()
     
         
-def delete_friend(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True)->None:
+def delete_friend(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize:bool=True,close_wechat:bool=True):
     ''' 
-    该函数用来删除好友\n
+    该函数用来删除好友
     Args:
         friend:好友备注
         search_pages:在会话列表中查询查找好友时滚动列表的次数,默认为10,一次可查询5-12人,当search_pages为0时,直接从顶部搜索栏搜索好友信息打开聊天界面\n
@@ -7840,12 +7841,13 @@ def delete_friend(friend:str,search_pages:int=5,wechat_path:str=None,is_maximize
         close_wechat:任务结束后是否关闭微信,默认关闭
     '''
     menu,friend_settings_window,main_window=Tools.open_friend_settings_menu(friend=friend,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
-    delete_friend_item=menu.child_window(**MenuItems.DeleteMenuItem)
+    delete_friend_item=menu.child_window(**MenuItems.DeleteContactMenuItem)
     delete_friend_item.click_input()
     confirm_window=friend_settings_window.child_window(**Panes.ConfirmPane)
     confirm_buton=confirm_window.child_window(**Buttons.DeleteButton)
     confirm_buton.click_input()
     time.sleep(1)
+    main_window.click_input()
     if close_wechat:
         main_window.close()
     
