@@ -96,9 +96,10 @@ for dict in moments:
     print(dict)
 ```
 
-![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/%E6%9C%8B%E5%8F%8B%E5%9C%88%E6%95%B0%E6%8D%AE.png)
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/dump_moments.png)
 <br>
-
+##### 注意，导出的结果为list[dict],每一条朋友圈对应一个dict,dict具体内容为:
+{'好友备注':'','发布时间':'','文本内容':'','点赞者':'','评论内容':'','图片数量':'','视频数量':'','卡片链接':'','卡片链接内容':'','视频号':'','公众号链接内容':''}
 #### 朋友圈图片导出
 ```
 from pywechat import export_recent_moments_images
@@ -192,5 +193,6 @@ print(check_new_message())
 👎👎请勿将pywechat用于任何非法商业活动,因此造成的一切后果由使用者自行承担！ 
 
 ###### 作者CSDN主页:https://blog.csdn.net/weixin_73953650?spm=1011.2415.3001.5343
+
 
 
