@@ -96,6 +96,8 @@ def reply_func(newMessage):
     return '不好意思，未能理解您的需求'#最后总是要返回一个值，不要出现newMessage不在列举的情况,返回None
 reply_func()
 ```
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/decorator.png)
+<br>
 #### 监听某个群聊或好友的窗口(自动保存聊天文件与图片和视频)
 ```
 from pywechat import listen_on_chat
@@ -212,6 +214,7 @@ print(check_new_message())
 👎👎请勿将pywechat用于任何非法商业活动,因此造成的一切后果由使用者自行承担！ 
 
 ###### 作者CSDN主页:https://blog.csdn.net/weixin_73953650?spm=1011.2415.3001.5343
+
 
 
 
