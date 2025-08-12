@@ -76,10 +76,26 @@ Tools.set_wechat_as_environ_path()
 from pywechat import xxx
 xxx
 ```
+#### (注意，微信WeChat.exe路径已添加至windows系统环境变量,故当微信还未登录时,以下方法或函数无需传入wechat_path这一参数)
 <br>
 
-#### (注意，微信WeChat.exe路径已添加至windows系统环境变量,故当微信还未登录时,以下方法或函数无需传入wechat_path这一参数)
-
+#### 在某个群聊自动回复(使用装饰器自定义回复内容)
+```
+from pywechat.utils import auto_reply_to_groups_decorator
+@auto_reply_to_groups_decorator(duration='2min',friend='Pywechat测试群')
+def reply_func(newMessage):
+    if '你好' in newMessage:
+        return '你好,请问有什么可以帮您的吗?'
+    if '在吗' in newMessage:
+        return '在的,请问有什么可以帮您的吗?'
+    if '售后' in newMessage:
+        return '''您好，您可以点击下方链接申请售后:
+        https://github.com/Hello-Mr-Crab/pywechat'''
+    if '算了' in newMessage or '不需要了' in newMessage:
+        return '不好意思.未能为您提供满意的服务,欢迎下次光临'
+    return '不好意思，未能理解您的需求'#最后总是要返回一个值，不要出现newMessage不在列举的情况,返回None
+reply_func()
+```
 #### 监听某个群聊或好友的窗口(自动保存聊天文件与图片和视频)
 ```
 from pywechat import listen_on_chat
@@ -134,6 +150,9 @@ save_files(friend='测试群',number=20,folder_path=folder_path)
 from pywechat import auto_reply_to_group
 auto_reply_to_group(group_name='测试群',duration='20min',content='我被@了',at_only=True,at_others=True)
 ```
+
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/auto_reply_to_group.png)
+<br>
 #### 给某个好友发送多条信息：
 ```
 from pywechat.WechatAuto import Messages
@@ -193,6 +212,7 @@ print(check_new_message())
 👎👎请勿将pywechat用于任何非法商业活动,因此造成的一切后果由使用者自行承担！ 
 
 ###### 作者CSDN主页:https://blog.csdn.net/weixin_73953650?spm=1011.2415.3001.5343
+
 
 
 
