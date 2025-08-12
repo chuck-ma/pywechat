@@ -3687,7 +3687,7 @@ class GroupSettings():
                     if searchList.children(control_type='ListItem'):
                         searchResult=searchList.children(control_type='ListItem',title=other_friend)
                         if searchResult:
-                            searchResult[0].click_input()
+                            pyautogui.press('enter')
                     pyautogui.hotkey('ctrl','a')
                     pyautogui.press('backspace')
                 complete_button.click_input()
@@ -3711,7 +3711,7 @@ class GroupSettings():
                             if searchList.children(control_type='ListItem'):
                                 searchResult=searchList.children(control_type='ListItem',title=other_friend)
                                 if searchResult:
-                                    searchResult[0].click_input()
+                                    pyautogui.press('enter')
                             pyautogui.hotkey('ctrl','a')
                             pyautogui.press('backspace')
                         complete_button.click_input()
@@ -3737,7 +3737,7 @@ class GroupSettings():
                         if searchList.children(control_type='ListItem'):
                             searchResult=searchList.children(control_type='ListItem',title=other_friend)
                             if searchResult:
-                                searchResult[0].click_input()
+                                pyautogui.press('enter')
                         pyautogui.hotkey('ctrl','a')
                         pyautogui.press('backspace')
                         complete_button.click_input()#
@@ -8781,7 +8781,7 @@ def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友
                 if searchList.children(control_type='ListItem'):
                     searchResult=searchList.children(control_type='ListItem',title=other_friend)
                     if searchResult:
-                        searchResult[0].click_input()
+                        pyautogui.press('enter')
                 pyautogui.hotkey('ctrl','a')
                 pyautogui.press('backspace')
             complete_button.click_input()
@@ -8805,7 +8805,7 @@ def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友
                         if searchList.children(control_type='ListItem'):
                             searchResult=searchList.children(control_type='ListItem',title=other_friend)
                             if searchResult:
-                                searchResult[0].click_input()
+                                pyautogui.press('enter')
                         pyautogui.hotkey('ctrl','a')
                         pyautogui.press('backspace')
                     complete_button.click_input()
@@ -8816,7 +8816,7 @@ def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友
                         Approval_window.child_window(control_type='Button',found_index=0).click_input()
                     if GroupInvitationApprovalWindow.exists():
                         GroupInvitationApprovalWindow.child_window(**Buttons.ConfirmButton).click_input()
-                    time.sleep(60)
+                    time.sleep(120)
                     add.click_input()
                     search.click_input()
                 else:
@@ -8831,7 +8831,7 @@ def invite_others_to_group(group_name:str,friends:list[str],query:str='拉好友
                     if searchList.children(control_type='ListItem'):
                         searchResult=searchList.children(control_type='ListItem',title=other_friend)
                         if searchResult:
-                            searchResult[0].click_input()
+                            pyautogui.press('enter')
                     pyautogui.hotkey('ctrl','a')
                     pyautogui.press('backspace')
                     complete_button.click_input()#
