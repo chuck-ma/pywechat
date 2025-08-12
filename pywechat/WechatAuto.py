@@ -3779,7 +3779,7 @@ class GroupSettings():
             delete.click_input()
             delete_member_window=main_window.child_window(**Main_window.DeleteMemberWindow)
             for member in friends:
-                search=delete_member_window.child_window(*Edits.SearchEdit)
+                search=delete_member_window.child_window(**Edits.SearchEdit)
                 search.click_input()
                 Systemsettings.copy_text_to_windowsclipboard(member)
                 pyautogui.hotkey('ctrl','v')
