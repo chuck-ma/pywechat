@@ -96,6 +96,7 @@ def reply_func(newMessage):
     return '不好意思，未能理解您的需求'#最后总是要返回一个值，不要出现newMessage不在列举的情况,返回None
 reply_func()
 ```
+
 ![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/decorator.png)
 <br>
 #### 监听某个群聊或好友的窗口(自动保存聊天文件与图片和视频)
@@ -123,6 +124,9 @@ for dict in moments:
 from pywechat import export_recent_moments_images
 export_recent_moments_images(recent='Today')
 ```
+
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/moments_images.png)
+<br>
 #### 监听整个会话列表内所有好友的新消息(自动保存聊天文件)
 ```
 from pywechat import check_new_message
@@ -134,7 +138,7 @@ newMessages=check_new_message(duration='5min',save_file=True,target_folder=files
 ##### 运行效果可查看
 https://blog.csdn.net/weixin_73953650/article/details/148619622?spm=1001.2014.3001.5501
 
-#### 转发指定数量文件给n个好友
+#### 转发与某个好友的一定数量文件给其他好友
  ```
  #注意:微信转发消息单次上线为9,pywechat内转发消息,文件,链接,小程序等支持多个好友按9个为一组分批发送
  from pywechat import forward_files
@@ -209,11 +213,12 @@ print(check_new_message())
 
 ![Alt text](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/check_new_message.gif)
 
-##### 若你开启了语音自动转消息功能后,新消息中含有语音消息的话,可以将其转换结果一并记录。（1.8.8版本支持此功能）
+##### 若你开启了语音自动转消息功能后,新消息中含有语音消息的话,可以将其转换结果一并记录。（1.9.7版本支持此功能）
 ## 注意:
 👎👎请勿将pywechat用于任何非法商业活动,因此造成的一切后果由使用者自行承担！ 
 
 ###### 作者CSDN主页:https://blog.csdn.net/weixin_73953650?spm=1011.2415.3001.5343
+
 
 
 
