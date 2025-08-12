@@ -81,8 +81,8 @@ xxx
 
 #### 在某个群聊自动回复(使用装饰器自定义回复内容)
 ```
-from pywechat.utils import auto_reply_to_groups_decorator
-@auto_reply_to_groups_decorator(duration='2min',friend='Pywechat测试群')
+from pywechat.utils import auto_reply_to_group_decorator
+@auto_reply_to_group_decorator(duration='2min',group_name='Pywechat测试群',at_only=True,at_other=True)
 def reply_func(newMessage):
     if '你好' in newMessage:
         return '你好,请问有什么可以帮您的吗?'
@@ -212,6 +212,7 @@ print(check_new_message())
 👎👎请勿将pywechat用于任何非法商业活动,因此造成的一切后果由使用者自行承担！ 
 
 ###### 作者CSDN主页:https://blog.csdn.net/weixin_73953650?spm=1011.2415.3001.5343
+
 
 
 
