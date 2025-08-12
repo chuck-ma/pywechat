@@ -4878,18 +4878,14 @@ class Contacts():
         group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
         showAllButton=group_chat_settings_window.child_window(**Buttons.ShowAllButton)
         chatList=group_chat_settings_window.child_window(**Lists.ChatList)
-        #Notfriends为新增和移出两个按钮在不同语言下的名称，其在聊天列表中也是ListItem，
-        #当群聊人数少没有查看更多按钮时直接遍历获取window_text
-        #会把这两个东西的名称也包含进去，因此需要筛选一下
-        Notfriends={ListItems.AddListItem['title'],ListItems.RemoveListItem['title']}
         if showAllButton.exists():
-            #查看更多按钮点击后,新增和移出两个按钮会消失不见
+            #群聊人数较多，需要点击查看更多按钮展开
             showAllButton.click_input()
-            group_members=[listitem for listitem in chatList.children(control_type='ListItem')]
+            group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.descendants(control_type='Button')[0].window_text()!='']
             group_members_alias=[member.window_text() for member in group_members]
             group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
         else:
-            group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.window_text() not in Notfriends]
+            group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.descendants(control_type='Button')[0].window_text()!='']
             group_members_alias=[member.window_text() for member in group_members]
             group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
         info={'群聊':group_name,'人数':len(group_members_alias),'群成员群昵称':group_members_alias,'群成员昵称':group_members_nicknames}
@@ -9930,18 +9926,14 @@ def get_group_members_info(group_name:str,is_json:bool=False,search_pages:int=5,
     group_chat_settings_window,main_window=Tools.open_group_settings(group_name=group_name,wechat_path=wechat_path,is_maximize=is_maximize,search_pages=search_pages)
     showAllButton=group_chat_settings_window.child_window(**Buttons.ShowAllButton)
     chatList=group_chat_settings_window.child_window(**Lists.ChatList)
-    #Notfriends为新增和移出两个按钮在不同语言下的名称，其在聊天列表中也是ListItem，
-    #当群聊人数少没有查看更多按钮时直接遍历获取window_text
-    #会把这两个东西的名称也包含进去，因此需要筛选一下
-    Notfriends={ListItems.AddListItem['title'],ListItems.RemoveListItem['title']}
     if showAllButton.exists():
-        #查看更多按钮点击后,新增和移出两个按钮会消失不见
+        #群聊人数较多，需要点击查看更多按钮
         showAllButton.click_input()
-        group_members=[listitem for listitem in chatList.children(control_type='ListItem')]
+        group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.descendants(control_type='Button')[0].window_text()!='']
         group_members_alias=[member.window_text() for member in group_members]
         group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
     else:
-        group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.window_text() not in Notfriends]
+        group_members=[listitem for listitem in chatList.children(control_type='ListItem') if listitem.descendants(control_type='Button')[0].window_text()!='']
         group_members_alias=[member.window_text() for member in group_members]
         group_members_nicknames=[member.descendants(control_type='Button')[0].window_text() for member in group_members]
     info={'群聊':group_name,'人数':len(group_members_alias),'群成员群昵称':group_members_alias,'群成员昵称':group_members_nicknames}
