@@ -17,33 +17,11 @@ main_window.child_window(**searchbar).type_keys('你好!')
 ```
 即可获取到每个类别下的各个组件\n
 使用时无需担心语言对UI控件的影响,导入Uielements时会自动根据微信的语言调整控件中的title属性\n
-如果需要自行指定可以language的取值为:'简体中文','繁体中文','英文'
+如果需要自行指定,language的取值为:'简体中文','繁体中文','英文'
 '''
 import winreg
 from pywechat.Errors import NotInstalledError
 #################################################################
-#微信主界面:
-#==========================================================================================
-#工具栏 |搜索|       |+|添加好友              ···聊天信息按钮  #
-#                                             |
-#|头像|   |          |                            |
-#|聊天|   |          |                            |
-#|通讯录|  | 会话列表     |                            |
-#|收藏|   |          |    聊天界面                    |
-#|聊天文件| |          |                            |
-#|朋友圈|  |          |                            |
-#|视频号|  |          |                            |
-#|看一看|  |          |                            |
-#|搜一搜|  |          |                            |
-#      |          |                            |
-#      |          |                            |
-#      |          |                            | 
-#      |          |---------------------------------------------------------
-#小程序面板 |          |  表情 聊天文件 截图 聊天记录           |
-#|手机|   |          |                            |
-#|设置及其他||          |                            |
-#===========================================================================================
-
 def language_detector():
     """
     查询注册表来检测当前微信的语言版本\n
@@ -122,6 +100,15 @@ class Buttons():
             self.ReloadButton={'title':'重新加载','control_type':'Button'}#看一看界面里的重新加载按钮
             self.RotateButton={'title':'旋转','control_type':'Button'}#图片预览窗口里的旋转按钮,只有图片才有,视频没有可以用来判别是图片还是视频
             self.PreviousButton={'title':'上一张','control_type':'Button'}#图片预览窗口里的上一张按钮
+            self.ShowAllButton={'title':'查看更多','control_type':'Button'}#群设置界面内的查看更多按钮
+            self.LedgerButton={'title':'小账本','control_type':'Button'}#微信收款助手内的小账本按钮
+            self.PaymentCodeButton={'title':'个人收款码','control_type':'Button','framework_id':'Chrome'}#微信收款助手内的个人收款码按钮
+            self.InputButton={'title':'输入','control_type':'Button'}#公众号内最右侧的键盘图标形状的按钮,按下后可以向公众号发送消息
+            self.ServiceButton={'title':'服务','control_type':'Button'}##公众号内最右侧的键盘图标形状的按钮,按下后转换为四个按钮
+            self.CommentButton={'title':'评论','control_type':'Button'}#朋友圈内的评论按钮
+            self.ImageButton={'title':'图片','control_type':'Button'}#朋友圈包含\d+图片窗口下的图片按钮,当且仅当好友的朋友圈内容含有图片时才有这个按钮
+            self.ChannelButton={'title':'视频号','control_type':'Button'}#微信聊天记录界面里顶部的视频号Tabitem
+            self.TransactionsButton={'title':'Transactions','control_type':'Button'}#微信支付界面内的我的账单按钮
         
         if self.language=='英文':
             self.MySelfButton={'control_type':'Button','found_index':0}#主界面下的第一个按钮,也就是我自己的头像按钮，必须通过main_window.child_window(**Buttons.MyselfButton)使用!
@@ -174,6 +161,15 @@ class Buttons():
             self.ReloadButton={'title':'重新加载','control_type':'Button'}#看一看界面里的重新加载按钮
             self.RotateButton={'title':'Rotate','control_type':'Button'}#图片预览窗口里的旋转按钮,只有图片才有,视频没有可以用来判别是图片还是视频
             self.PreviousButton={'title':'Previous','control_type':'Button'}#图片预览窗口里的上一张按钮
+            self.ShowAllButton={'title':'Show All','control_type':'Button'}#群设置界面内的查看更多按钮
+            self.LedgerButton={'title':'小账本','control_type':'Button'}#微信收款助手内的小账本按钮
+            self.PaymentCodeButton={'title':'个人收款码','control_type':'Button','framework_id':'Chrome'}#微信收款助手内的个人收款码按钮
+            self.InputButton={'title':'Enter','control_type':'Button'}#公众号内最右侧的键盘图标形状的按钮,按下后可以向公众号发送消息
+            self.ServiceButton={'title':'Service','control_type':'Button'}##公众号内最右侧的键盘图标形状的按钮,按下后转换为四个按钮
+            self.CommentButton={'title':'Comment','control_type':'Button'}#朋友圈内的评论按钮
+            self.ImageButton={'title':'图片','control_type':'Button'}#朋友圈包含\d+图片窗口下的图片按钮,当且仅当好友的朋友圈内容含有图片时才有这个按钮
+            self.ChannelButton={'title':'Channel','control_type':'Button'}#微信朋友圈有人转发视频号时的视频号按钮
+            self.TransactionsButton={'title':'Transactions','control_type':'Button'}#微信支付界面内的我的账单按钮
         
         if self.language=='繁体中文':
             self.MySelfButton={'control_type':'Button','found_index':0}#主界面下的第一个按钮,也就是我自己的头像按钮，必须通过main_window.child_window(**Buttons.MyselfButton)使用!
@@ -226,7 +222,17 @@ class Buttons():
             self.ReloadButton={'title':'重新加载','control_type':'Button'}#看一看界面里的重新加载按钮
             self.RotateButton={'title':'旋轉','control_type':'Button'}#图片预览窗口里的旋转按钮,只有图片才有,视频没有可以用来判别是图片还是视频
             self.PreviousButton={'title':'上一張','control_type':'Button'}#图片预览窗口里的上一张按钮
-class Edits():
+            self.ShowAllButton={'title':'查看更多','control_type':'Button'}#群设置界面内的查看更多按钮
+            self.LedgerButton={'title':'小账本','control_type':'Button'}#微信收款助手内的小账本按钮
+            self.PaymentCodeButton={'title':'个人收款码','control_type':'Button','framework_id':'Chrome'}#微信收款助手内的个人收款码按钮
+            self.InputButton={'title':'输入','control_type':'Button'}#公众号内最右侧的键盘图标形状的按钮,按下后可以向公众号发送消息
+            self.ServiceButton={'title':'服务','control_type':'Button'}##公众号内最右侧的键盘图标形状的按钮,按下后转换为四个按钮
+            self.CommentButton={'title':'評論','control_type':'Button'}#朋友圈内的评论按钮
+            self.ImageButton={'title':'图片','control_type':'Button'}#朋友圈包含\d+图片窗口下的图片按钮,当且仅当好友的朋友圈内容含有图片时才有这个按钮
+            self.ChannelButton={'title':'影音號','control_type':'Button'}#微信朋友圈有人转发视频号时的视频号按钮
+            self.TransactionsButton={'title':'我的账单','control_type':'Button'}#微信支付界面内的我的账单按钮
+
+class Edits():     
     '''微信主界面内所有类型为Edit(不包含独立窗口)的UI控件'''
     def __init__(self,language=language):
         self.language=language
@@ -295,6 +301,8 @@ class Texts():
             self.EarliestOneText={'title':'已是第一张','control_type':'Text'}#图片预览窗口里的这是最早的一张图片文本
             self.ExpiredText={'title':'已过期','control_type':'Text'}#聊天记录列表里点击视频播放按钮后可能出现的过期按钮
             self.DeletedText={'title':'已被删除','control_type':'Text'}#聊天记录列表里点击视频播放按钮后可能出现的已被删除按钮
+            self.OfficialAccountsText={'title':'公众号','control_type':'Text','found_index':2}#通讯录中点击公众号选项后右侧主界面的公众号文本
+            self.SavePaymentCodeText={'title':'保存收款码','control_type':'Text'}#微信收款助手小账本内点击个人收款码后弹出的经营账户窗口内的保存收款码文本，点击后可以出发保存事件
 
         if self.language=='英文':
             self.NetWorkError={'title':'Network Disconnected. Check and try again.','control_type':'Text'}#微信没联网时顶部的红色文本
@@ -320,7 +328,9 @@ class Texts():
             self.EarliestOneText={'title':'This is the first one','control_type':'Text'}#图片预览窗口里的这是最早的一张图片文本
             self.ExpiredText={'title':'Expired','control_type':'Text'}#聊天记录列表里点击视频播放按钮后可能出现的过期按钮
             self.DeletedText={'title':'Deleted','control_type':'Text'}#聊天记录列表里点击视频播放按钮后可能出现的已被删除按钮
-        
+            self.OfficialAccountsText={'title':'Official Accounts','control_type':'Text','found_index':2}#通讯录中点击公众号选项后右侧主界面的公众号文本
+            self.SavePaymentCodeText={'title':'保存收款码','control_type':'Text'}#微信收款助手小账本内点击个人收款码后弹出的经营账户窗口内的保存收款码文本，点击后可以出发保存事件
+
         if self.language=='繁体中文':
             self.NetWorkError={'title':'網絡不可用，請檢查你的網絡設定','control_type':'Text'}#微信没联网时顶部的红色文本
             self.SearchContactsResult={'title_re':'搜尋','control_type':'Text'}#搜索联系人时的文本结果
@@ -344,9 +354,8 @@ class Texts():
             self.EarliestOneText={'title':'已是第一張','control_type':'Text'}#图片预览窗口里的这是最早的一张图片文本
             self.ExpiredText={'title':'已過期','control_type':'Text'}#聊天记录列表里点击视频播放按钮后可能出现的过期按钮
             self.DeletedText={'title':'已被刪除','control_type':'Text'}#聊天记录列表里点击视频播放按钮后可能出现的已被删除按钮
-
-
-
+            self.OfficialAccountsText={'title':'官方賬號','control_type':'Text','found_index':2}#通讯录中点击公众号选项后右侧主界面的公众号文本
+            self.SavePaymentCodeText={'title':'保存收款码','control_type':'Text'}#微信收款助手小账本内点击个人收款码后弹出的经营账户窗口内的保存收款码文本，点击后可以出发保存事件
 class TabItems():
     def __init__(self,language=language):
         self.language=language
@@ -406,7 +415,10 @@ class Lists():
             self.MusicList={'title':'音乐','control_type':'List'}#微信聊天记录窗口中选择音乐与音频后的列表
             self.ChannelList={'title':'视频号','control_type':'List'}#微信聊天记录窗口中选择视频号后的列表
             self.SelectContactToAddList={'title':'请勾选需要添加的联系人','control_type':'List'}#微信群聊拉人转发消息界面内搜索好友后的结果列表
-
+            self.ChatList={'title':'聊天成员','control_type':'List'}#群聊设置界面内的聊天成员列表
+            self.MomentsList={'title':'朋友圈','control_type':'List'}#朋友圈列表
+            self.CommentList={'title':'评论','control_type':'List'}#朋友圈评论列表
+        
         if self.language=='英文':
             self.ChatHistoryList={'title':'All','control_type':'List'}#聊天记录页面中的存放聊天消息的列表
             self.ContactsList={'title':'Contacts','control_type':'List'}#通讯录中的联系人列表
@@ -419,6 +431,9 @@ class Lists():
             self.MusicList={'title':'Music','control_type':'List'}#微信聊天记录窗口中选择音乐与音频后的列表
             self.ChannelList={'title':'Channels','control_type':'List'}#微信聊天记录窗口中选择视频号后的列表 
             self.SelectContactToAddList={'title':'Select contacts to add','control_type':'List'}#微信群聊拉人转发消息界面内搜索好友后的结果列表
+            self.ChatList={'title':'Members','control_type':'List'}#群聊设置界面内的聊天成员列表
+            self.MomentsList={'title':'Moments','control_type':'List'}#朋友圈列表
+            self.CommentList={'title':'Comment','control_type':'List'}#朋友圈评论列表
 
         if self.language=='繁体中文':
             self.ChatHistoryList={'title':'全部','control_type':'List'}#聊天记录页面中的存放聊天消息的列表
@@ -432,8 +447,9 @@ class Lists():
             self.MusicList={'title':'音樂','control_type':'List'}#微信聊天记录窗口中选择音乐与音频后的列表
             self.ChannelList={'title':'影音號','control_type':'List'}#微信聊天记录窗口中选择视频号后的列表
             self.SelectContactToAddList={'title':'請勾選需要新增的聯絡人','control_type':'List'}#微信群聊拉人转发消息界面内搜索好友后的结果列表
-
-
+            self.ChatList={'title':'聊天室成員','control_type':'List'}#群聊设置界面内的聊天成员列表
+            self.MomentsList={'title':'朋友圈','control_type':'List'}#朋友圈列表
+            self.CommentList={'title':'評論','control_type':'List'}#朋友圈评论列表
 
 class Panes():
     def __init__(self,language=language):
@@ -446,7 +462,8 @@ class Panes():
             self.ChangeShortcutPane={'title':'','control_type':'Pane','class_name':'SetAcceleratorWnd'}#修改快捷键时弹出的框
             self.ChatContaceMenuPane={'title':'ChatContactMenu','class_name':'ChatContactMenu','control_type':'Pane','framework_id':'Win32'}#群聊输入@+好友名字时弹出的选择聊天记录的列表
             self.VideoPlayerPane={'title':'player video','control_type':'Pane'}#图片预览窗口内的视频播放器pane
-
+            self.VideoPane={'title':'视频','control_type':'Pane'}#朋友圈视频窗格,只有好友朋友圈内容是视频才有这个窗格
+        
         if self.language=='英文':
             self.FriendProfilePane={'class_name':'ContactProfileWnd','control_type':'Pane','framework_id':'Win32'}#好友设置界面里点击头像后出现的个人简介界面
             self.ApprovalPane={'title':'New Tag','class_name':'WeUIDialog','control_type':'Pane'}#群主开启邀请好友须通过群主或管理员同意的验证消息框
@@ -455,6 +472,7 @@ class Panes():
             self.ChangeShortcutPane={'title':'','control_type':'Pane','class_name':'SetAcceleratorWnd'}#修改快捷键时弹出的框
             self.ChatContaceMenuPane={'title':'ChatContactMenu','class_name':'ChatContactMenu','control_type':'Pane','framework_id':'Win32'}#群聊输入@+好友名字时弹出的选择聊天记录的列表
             self.VideoPlayerPane={'title':'player video','control_type':'Pane'}#图片预览窗口内的视频播放器pane
+            self.VideoPane={'title':'video call','control_type':'Pane'}#朋友圈视频窗格,只有好友朋友圈内容是视频才有这个窗格
 
         if self.language=='繁体中文':
             self.FriendProfilePane={'class_name':'ContactProfileWnd','control_type':'Pane','framework_id':'Win32'}#好友设置界面里点击头像后出现的个人简介界面
@@ -464,7 +482,7 @@ class Panes():
             self.ChangeShortcutPane={'title':'','control_type':'Pane','class_name':'SetAcceleratorWnd'}#修改快捷键时弹出的框
             self.ChatContaceMenuPane={'title':'ChatContactMenu','class_name':'ChatContactMenu','control_type':'Pane','framework_id':'Win32'}#群聊输入@+好友名字时弹出的选择聊天记录的列表
             self.VideoPlayerPane={'title':'player video','control_type':'Pane'}#图片预览窗口内的视频播放器pane
-
+            self.VideoPane={'title':'影片','control_type':'Pane'}#朋友圈视频窗格,只有好友朋友圈内容是视频才有这个窗格
 
 
 class Menus():
@@ -481,7 +499,6 @@ class Menus():
             self.FriendProfileMenu={'title':'','control_type':'Menu','class_name':'CMenuWnd','framework_id':'Win32'}#好友个人简介界面内点击三个点之后弹出的菜单
            
 
-
 class MenuItems():
     def __init__(self,language=language):
         self.language=language
@@ -492,7 +509,7 @@ class MenuItems():
             self.BlockMenuItem={'title':'加入黑名单','control_type':'MenuItem'}#好友设置菜单栏里的加入黑名单
             self.EditContactMenuItem={'title':'设置备注和标签','control_type':'MenuItem'}#好友设置菜单栏里的设置备注和标签
             self.ShareContactMenuItem={'found_index':2,'control_type':'MenuItem'}#好友设置菜单栏里的推荐给朋友，这里使用title_re因为实际上中文版中微信是会根据性别来决定这个控件名称
-            self.DeleteMenuItem={'title':'删除联系人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
+            self.DeleteContactMenuItem={'title':'删除联系人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
             self.UnBlockMenuItem={'title':'移出黑名单','control_type':'MenuItem'}#好友设置菜单栏里的移出黑名单
             self.UnStarMenuItem={'title':'不再设为星标朋友','control_type':'MenuItem'}#好友设置菜单栏里的不再设为星标朋友
             self.Tickle={'title':'拍一拍','control_type':'MenuItem'}#拍一拍好友
@@ -509,6 +526,9 @@ class MenuItems():
             self.FindInChatMenuItem={'title':'定位到聊天位置','control_type':'MenuItem'}#聊天记录页面内右键消息后的Find in chat选项
             self.OpenWithDefaultBrowser={'title':'使用默认浏览器打开','control_type':'MenuItem'}#聊天记录页面内Link类型的消息后的使用默认浏览器打开
             self.ShowInFolderMenuItem={'title':'在文件夹中显示','control_type':'MenuItem'}#邮件消息文件消息后的在文件夹中显示
+            self.EnterLedgerMenuItem={'title':'进入小账本','control_type':'MenuItem'}
+            self.PaymentRecordsMenuItem={'title':'收款记录','control_type':'MenuItem'}
+
 
         if self.language=='英文':
             self.SetPrivacyMenuItem={'title':'Set Privacy','control_type':'MenuItem'}#好友设置菜单栏里的设置朋友权限
@@ -516,7 +536,7 @@ class MenuItems():
             self.BlockMenuItem={'title':'Block','control_type':'MenuItem'}#好友设置菜单栏里的加入黑名单
             self.EditContactMenuItem={'title':'Edit Contact','control_type':'MenuItem'}#好友设置菜单栏里的设置备注和标签
             self.ShareContactMenuItem={'found_index':2,'control_type':'MenuItem'}#好友设置菜单栏里的推荐给朋友，这里使用title_re因为实际上中文版中微信是会根据性别来决定这个控件名称
-            self.DeleteMenuItem={'title':'Delete','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
+            self.DeleteContactMenuItem={'title':'Delete Contact','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
             self.UnBlockMenuItem={'title':'Unblock','control_type':'MenuItem'}#好友设置菜单栏里的移出黑名单
             self.UnStarMenuItem={'title':'Unstar','control_type':'MenuItem'}#好友设置菜单栏里的不再设为星标朋友
             self.Tickle={'title':'Tickle','control_type':'MenuItem'}#拍一拍好友
@@ -534,6 +554,8 @@ class MenuItems():
             self.FindInChatMenuItem={'title':'Find in Chat','control_type':'MenuItem'}#聊天记录页面内右键消息后的Find in chat选项
             self.OpenWithDefaultBrowser={'title':'OpenWithDefaultBrowser','control_type':'MenuItem'}#聊天记录页面内Link类型的消息后的使用默认浏览器打开
             self.ShowInFolderMenuItem={'title':'Show in folder','control_type':'MenuItem'}#右键消息文件消息后的在文件夹中显示
+            self.EnterLedgerMenuItem={'title':'进入小账本','control_type':'MenuItem'}
+            self.PaymentRecordsMenuItem={'title':'收款记录','control_type':'MenuItem'}
 
         if self.language=='繁体中文':
             self.SetPrivacyMenuItem={'title':'設定朋友權限','control_type':'MenuItem'}#好友设置菜单栏里的设置朋友权限
@@ -541,7 +563,7 @@ class MenuItems():
             self.BlockMenuItem={'title':'加入黑名單','control_type':'MenuItem'}#好友设置菜单栏里的加入黑名单
             self.EditContactMenuItem={'title':'設定備註和標籤','control_type':'MenuItem'}#好友设置菜单栏里的设置备注和标签
             self.ShareContactMenuItem={'found_index':2,'control_type':'MenuItem'}#好友设置菜单栏里的推荐给朋友，这里使用title_re因为实际上中文版中微信是会根据性别来决定这个控件名称
-            self.DeleteMenuItem={'title':'刪除聯絡人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
+            self.DeleteContactMenuItem={'title':'刪除聯絡人','control_type':'MenuItem'}#好友设置菜单栏里的删除好友
             self.UnBlockMenuItem={'title':'移除黑名單','control_type':'MenuItem'}#好友设置菜单栏里的移出黑名单
             self.UnStarMenuItem={'title':'不再設為超級好友','control_type':'MenuItem'}#好友设置菜单栏里的不再设为星标朋友
             self.Tickle={'title':'拍一拍','control_type':'MenuItem'}#拍一拍好友
@@ -559,6 +581,8 @@ class MenuItems():
             self.FindInChatMenuItem={'title':'定位到聊天位置','control_type':'MenuItem'}#聊天记录页面内右键消息后的Find in chat选项
             self.OpenWithDefaultBrowser={'title':'使用預設瀏覽器開啟','control_type':'MenuItem'}#聊天记录页面内Link类型的消息后的使用默认浏览器打开
             self.ShowInFolderMenuItem={'title':'在資料夾中顯示','control_type':'MenuItem'}#右键消息文件后的在文件夹中显示选项
+            self.EnterLedgerMenuItem={'title':'进入小账本','control_type':'MenuItem'}
+            self.PaymentRecordsMenuItem={'title':'收款记录','control_type':'MenuItem'}
 
 
 class CheckBoxes():
@@ -649,14 +673,25 @@ class ListItems():
     def __init__(self,language=language):
         self.language=language
         if self.language=='简体中文':
-            self.MentionAllListItem={'title':'所有人','control_type':'ListItem'}
+            self.MentionAllListItem={'title':'所有人','control_type':'ListItem'}#@所有人时出现的所有人选项
+            self.AddListItem={'title':'添加','control_type':'ListItem'}#群聊设置界面内的添加按钮，只有群主和管理员可以看到
+            self.RemoveListItem={'title':'移除','control_type':'ListItem'}#群聊设置界面内的移除按钮，只有群主和管理员可以看到
+            self.OfficialAccountsListItem={'title':'公众号','control_type':'ListItem'}#通讯录列表里的公众号选项
+            self.NewFriendsListItem={'title':'新的朋友','control_type':'ListItem'}#通讯录列表内新的朋友选项
 
-        if self.language=='繁体中文':
+        if self.language=='繁体中文': 
             self.MentionAllListItem={'title':'所有人','control_type':'ListItem'}
+            self.AddListItem={'title':'新增','control_type':'ListItem'}#群聊设置界面内的添加按钮，只有群主和管理员可以看到
+            self.RemoveListItem={'title':'移出','control_type':'ListItem'}#群聊设置界面内的移除按钮，只有群主和管理员可以看到
+            self.OfficialAccountsListItem={'title':'官方賬號','control_type':'ListItem'}#通讯录列表里的公众号选项
+            self.NewFriendsListItem={'title':'新的朋友','control_type':'ListItem'}#通讯录列表内新的朋友选项
 
         if self.language=='英文':
-            self.MentionAllListItem={'title':'Mention All','control_type':'ListItem'}
-
+            self.MentionAllListItem={'title':'Mention All','control_type':'ListItem'} 
+            self.AddListItem={'title':'Add','control_type':'ListItem'}#群聊设置界面内的添加按钮，只有群主和管理员可以看到
+            self.RemoveListItem={'title':'Remove','control_type':'ListItem'}#群聊设置界面内的移除按钮，只有群主和管理员可以看到
+            self.OfficialAccountsListItem={'title':'Official Accounts','control_type':'ListItem'}#通讯录列表里的公众号选项
+            self.NewFriendsListItem={'title':'New Friends','control_type':'ListItem'}#通讯录列表内新的朋友选项
 
 
 class Login_window():
@@ -833,6 +868,10 @@ class Independent_window():
             self.OfficialAccountWindow={'title':'公众号','control_type':'Window','class_name':'H5SubscriptionProfileWnd'}#公众号窗口
             self.OfficialAccountChatWindow={'class_name':'ChatWnd','control_type':'Window','framework_id':'Win32'}#公众号聊天窗口
             self.ReadMessageWindow={'title':'消息阅读','control_type':'Window','class_name':'CommonPreviewWnd'}#放大阅读后的阅读窗口
+            self.ReceiptLedgerWindow={'title':'收款小账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款小账本窗口
+            self.PaymentCodeWindow={'title':'经营账户','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款码窗口
+            self.MyBillsAndServiceWindow={'title':'我的账单与服务','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单与服务窗口
+            self.MyBillsWindow={'title':'微信记账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单窗口
 
         if self.language=='英文':
             self.Desktop={'backend':'uia'}#windows桌面
@@ -857,6 +896,10 @@ class Independent_window():
             self.OfficialAccountWindow={'title':'Official Accounts','control_type':'Window','class_name':'H5SubscriptionProfileWnd'}#在搜一搜中搜出来的公众号窗口
             self.OfficialAccountChatWindow={'class_name':'ChatWnd','control_type':'Window','framework_id':'Win32'}#公众号聊天窗口
             self.ReadMessageWindow={'title':'Read messages','control_type':'Window','class_name':'CommonPreviewWnd'}#放大阅读后的阅读窗口
+            self.ReceiptLedgerWindow={'title':'收款小账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款小账本窗口
+            self.PaymentCodeWindow={'title':'经营账户','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款码窗口
+            self.MyBillsAndServiceWindow={'title':'我的账单与服务','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单与服务窗口
+            self.MyBillsWindow={'title':'微信记账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单窗口
 
         if self.language=='繁体中文':
             self.Desktop={'backend':'uia'}#windows桌面
@@ -881,8 +924,10 @@ class Independent_window():
             self.OfficialAccountWindow={'title':'官方賬號','control_type':'Window','class_name':'H5SubscriptionProfileWnd'}#搜一搜里边搜索点击打开的公众号窗口
             self.OfficialAccountChatWindow={'class_name':'ChatWnd','control_type':'Window','framework_id':'Win32'}#公众号聊天窗口
             self.ReadMessageWindow={'title':'訊息閱讀','control_type':'Window','class_name':'CommonPreviewWnd'}#放大阅读后的阅读窗口
-
-
+            self.ReceiptLedgerWindow={'title':'收款小账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款小账本窗口
+            self.PaymentCodeWindow={'title':'经营账户','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#收款码窗口
+            self.MyBillsAndServiceWindow={'title':'我的账单与服务','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单与服务窗口
+            self.MyBillsWindow={'title':'微信记账本','control_type':'Pane','class_name':'Chrome_WidgetWin_0','framework_id':'Win32'}#微信支付我的账单窗口
 
 class SpecialMessages():
     '''特殊消息的Ui元素,如图片、视频、语音、视频号等\n
@@ -917,3 +962,4 @@ class SpecialMessages():
             self.FileMessage={'title':'[檔案]','control_type':'ListItem'}
             self.ChatHistoryMessage={'title':'[聊天記錄]','control_type':'ListItem'}
             self.AudioPattern=r'\[語音\]\d+秒'
+

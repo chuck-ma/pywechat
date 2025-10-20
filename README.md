@@ -3,7 +3,7 @@
 ## 🍬🍬全网最强微信RPA!
 ### pywechat是一个基于pywinauto实现的Windows系统下PC微信自动化的Python项目。基本实现了PC微信内置的所有功能,支持单线程多任务轮流进行!!
 
-### 微信版本:3.9.12.xx , 4.0+(只有简单的消息发送功能)
+### 微信版本:3.9.12.xx
 ### 操作系统:🪟windows 10 🪟windows 11
 ### python版本🐍:3.x
 ### 支持语言:简体中文,English,繁体中文
@@ -22,9 +22,9 @@
 <br>
 
 ### 获取方法:
-#### 最新版本:1.9.6
+#### 最新版本:1.9.7
 ```
-pip install pywechat127==1.9.6
+pip install pywechat127==1.9.7
 ```
 <br>
 
@@ -60,6 +60,7 @@ Tools.set_wechat_as_environ_path()
 ##### Contacts: 获取3种类型通讯录好友的备注与昵称包括:微信好友,企业号微信,群聊名称与人数，数据返回格式为json。
 ##### Call: 给某个好友打视频或语音电话。
 ##### AutoReply:自动接听微信视频或语音电话,自动回复指定好友消息,自动回复所有好友消息。
+#### Moments:针对微信朋友圈的一些方法,包括数据爬取，图片视频导出
 #### 函数:该模块内所有函数与方法一致。  
 <br>
 
@@ -75,10 +76,29 @@ Tools.set_wechat_as_environ_path()
 from pywechat import xxx
 xxx
 ```
+#### (注意，微信WeChat.exe路径已添加至windows系统环境变量,故当微信还未登录时,以下方法或函数无需传入wechat_path这一参数)
 <br>
 
-#### (注意，微信WeChat.exe路径已添加至windows系统环境变量,故当微信还未登录时,以下方法或函数无需传入wechat_path这一参数)
+#### 在某个群聊自动回复(使用装饰器自定义回复内容)
+```
+from pywechat.utils import auto_reply_to_group_decorator
+@auto_reply_to_group_decorator(duration='2min',group_name='Pywechat测试群',at_only=True,at_other=True)
+def reply_func(newMessage):
+    if '你好' in newMessage:
+        return '你好,请问有什么可以帮您的吗?'
+    if '在吗' in newMessage:
+        return '在的,请问有什么可以帮您的吗?'
+    if '售后' in newMessage:
+        return '''您好，您可以点击下方链接申请售后:
+        https://github.com/Hello-Mr-Crab/pywechat'''
+    if '算了' in newMessage or '不需要了' in newMessage:
+        return '不好意思.未能为您提供满意的服务,欢迎下次光临'
+    return '不好意思，未能理解您的需求'#最后总是要返回一个值，不要出现newMessage不在列举的情况,返回None
+reply_func()
+```
 
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/decorator.png)
+<br>
 #### 监听某个群聊或好友的窗口(自动保存聊天文件与图片和视频)
 ```
 from pywechat import listen_on_chat
@@ -87,6 +107,26 @@ mediasave_folder=r"E:\Desktop\聊天图片与视频保存"
 contents,senders,types=listen_on_chat(friend='测试群',duration='10min',save_file=True,file_folder=filesave_folder,save_media=True,media_folder=mediasave_folder)
 print(contents,senders,types)
 ```
+#### 朋友圈数据获取
+```
+from pywechat import dump_recent_moments
+moments=dump_recent_moments(recent='Today')
+for dict in moments:
+    print(dict)
+```
+
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/dump_moments.png)
+<br>
+##### 注意，导出的结果为list[dict],每一条朋友圈对应一个dict,dict具体内容为:
+{'好友备注':'','发布时间':'','文本内容':'','点赞者':'','评论内容':'','图片数量':'','视频数量':'','卡片链接':'','卡片链接内容':'','视频号':'','公众号链接内容':''}
+#### 朋友圈图片导出
+```
+from pywechat import export_recent_moments_images
+export_recent_moments_images(recent='Today')
+```
+
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/moments_images.png)
+<br>
 #### 监听整个会话列表内所有好友的新消息(自动保存聊天文件)
 ```
 from pywechat import check_new_message
@@ -98,7 +138,7 @@ newMessages=check_new_message(duration='5min',save_file=True,target_folder=files
 ##### 运行效果可查看
 https://blog.csdn.net/weixin_73953650/article/details/148619622?spm=1001.2014.3001.5501
 
-#### 转发指定数量文件给n个好友
+#### 转发与某个好友的一定数量文件给其他好友
  ```
  #注意:微信转发消息单次上线为9,pywechat内转发消息,文件,链接,小程序等支持多个好友按9个为一组分批发送
  from pywechat import forward_files
@@ -116,6 +156,9 @@ save_files(friend='测试群',number=20,folder_path=folder_path)
 from pywechat import auto_reply_to_group
 auto_reply_to_group(group_name='测试群',duration='20min',content='我被@了',at_only=True,at_others=True)
 ```
+
+![image](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/auto_reply_to_group.png)
+<br>
 #### 给某个好友发送多条信息：
 ```
 from pywechat.WechatAuto import Messages
@@ -170,8 +213,16 @@ print(check_new_message())
 
 ![Alt text](https://github.com/Hello-Mr-Crab/pywechat/blob/main/pics/check_new_message.gif)
 
-##### 若你开启了语音自动转消息功能后,新消息中含有语音消息的话,可以将其转换结果一并记录。（1.8.8版本支持此功能）
+##### 若你开启了语音自动转消息功能后,新消息中含有语音消息的话,可以将其转换结果一并记录。（1.9.7版本支持此功能）
 ## 注意:
 👎👎请勿将pywechat用于任何非法商业活动,因此造成的一切后果由使用者自行承担！ 
 
 ###### 作者CSDN主页:https://blog.csdn.net/weixin_73953650?spm=1011.2415.3001.5343
+
+
+
+
+
+
+
+
